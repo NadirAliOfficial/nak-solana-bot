@@ -14,6 +14,8 @@ logger = get_logger(__name__)
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+SOL_DECIMALS = 9
+USDC_DECIMALS = 6
 
 PUMPFUN_API_BASE = "https://frontend-api.pump.fun"
 JUPITER_PRICE_API = "https://api.jup.ag/price/v3"
@@ -33,6 +35,7 @@ class SolanaClient:
         self.rpc = SolanaRpcClient(rpc_url)
         self.keypair = Keypair.from_base58_string(private_key_b58) if private_key_b58 else None
         self.trade_mint = USDC_MINT if trade_currency.upper() == "USDC" else SOL_MINT
+        self.trade_mint_decimals = USDC_DECIMALS if self.trade_mint == USDC_MINT else SOL_DECIMALS
         self._http = httpx.Client(timeout=10.0)
 
     def list_new_pumpfun_tokens(self, limit: int = 50) -> List[Token]:
@@ -72,6 +75,8 @@ class SolanaClient:
         return float(info["tokenAmount"]["uiAmount"] or 0.0)
 
     def get_trade_currency_balance(self) -> float:
+        if self.trade_mint == SOL_MINT:
+            return self.get_sol_balance()
         return self.get_token_balance(self.trade_mint)
 
     def get_wallet_address(self) -> Optional[str]:
@@ -113,8 +118,15 @@ class SolanaClient:
         return signature
 
     def buy(self, token_mint: str, usd_amount: float, price_usd: float, slippage_bps: int) -> str:
-        # trade_mint is assumed to be a stable-priced asset (USDC); amount is in that token's atomic units (6 decimals)
-        amount_atomic = int(usd_amount * 1_000_000)
+        if self.trade_mint == USDC_MINT:
+            trade_currency_amount = usd_amount  # USDC is ~$1
+        else:
+            trade_mint_price = self.get_prices_usd([self.trade_mint]).get(self.trade_mint)
+            if not trade_mint_price:
+                raise RuntimeError(f"could not price trade currency {self.trade_mint} for buy sizing")
+            trade_currency_amount = usd_amount / trade_mint_price
+
+        amount_atomic = int(trade_currency_amount * (10 ** self.trade_mint_decimals))
         return self.swap(self.trade_mint, token_mint, amount_atomic, slippage_bps)
 
     def sell(self, token_mint: str, quantity: float, token_decimals: int, slippage_bps: int) -> str:
