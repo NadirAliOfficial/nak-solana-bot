@@ -17,7 +17,6 @@ USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 SOL_DECIMALS = 9
 USDC_DECIMALS = 6
 
-PUMPFUN_API_BASE = "https://frontend-api.pump.fun"
 JUPITER_PRICE_API = "https://api.jup.ag/price/v3"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
@@ -37,15 +36,6 @@ class SolanaClient:
         self.trade_mint = USDC_MINT if trade_currency.upper() == "USDC" else SOL_MINT
         self.trade_mint_decimals = USDC_DECIMALS if self.trade_mint == USDC_MINT else SOL_DECIMALS
         self._http = httpx.Client(timeout=10.0)
-
-    def list_new_pumpfun_tokens(self, limit: int = 50) -> List[Token]:
-        resp = self._http.get(
-            f"{PUMPFUN_API_BASE}/coins",
-            params={"offset": 0, "limit": limit, "sort": "created_timestamp", "order": "DESC"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return [Token(mint=c["mint"], symbol=c.get("symbol", "?"), name=c.get("name", "")) for c in data]
 
     def get_prices_usd(self, mints: List[str]) -> Dict[str, float]:
         if not mints:

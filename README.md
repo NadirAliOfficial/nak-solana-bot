@@ -23,10 +23,13 @@ a high rug pull and honeypot risk; see the warnings below before running live.
 ## How it watches the market
 
 Unlike Coinbase, Solana tokens have no ready-made candle API, especially for
-tokens seconds old. The bot builds its own rolling price history in memory:
-each scan cycle it pulls the newest Pump.fun launches, merges them into a
-watchlist (capped at 300 tokens), and batches price lookups through Jupiter's
-price API. Momentum is computed from that accumulated history.
+tokens seconds old. New launches and Raydium migrations stream in continuously
+over PumpPortal's free WebSocket feed (`wss://pumpportal.fun/api/data`) and
+feed a watchlist (capped at 300 tokens); pump.fun's own REST API
+(`frontend-api.pump.fun`) was retired and no longer works. Separately, the bot
+polls Jupiter's price API every 10s for whatever's on the watchlist and builds
+its own rolling price history in memory. Momentum is computed from that
+accumulated history.
 
 ## Setup
 

@@ -6,6 +6,7 @@ from .dashboard import create_app
 from .logger import get_logger
 from .market_state import MarketState
 from .positions import PositionStore
+from .pumpportal import PumpPortalListener
 from .solana_client import SolanaClient
 from .trader import Trader
 
@@ -28,7 +29,7 @@ def _market_scan_loop(trader: Trader):
             logger.info(f"scan complete: watching {watched} tokens")
         except Exception as exc:
             logger.error(f"market scan failed: {exc}")
-        time.sleep(2)  # floor so a fast-failing discovery source can't spin the loop
+        time.sleep(10)  # price sampling cadence; discovery itself is event-driven via PumpPortal
 
 
 def main():
@@ -53,6 +54,10 @@ def main():
 
     scan_thread = threading.Thread(target=_market_scan_loop, args=(trader,), daemon=True)
     scan_thread.start()
+
+    listener = PumpPortalListener(on_new_token=trader.add_discovered_token)
+    listener.start()
+    logger.info("PumpPortal listener started")
 
     _position_monitor_loop(trader, config)
 

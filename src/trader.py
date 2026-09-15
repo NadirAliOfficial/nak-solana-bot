@@ -29,16 +29,17 @@ class Trader:
         self.watchlist = {}  # mint -> {symbol, first_seen}
         self.price_history = {}  # mint -> [(ts, price), ...]
         self._history_lock = threading.Lock()
+        self._watchlist_lock = threading.Lock()
 
-    def _merge_watchlist(self, tokens):
-        now = time.time()
-        for t in tokens:
-            if t.mint not in self.watchlist:
-                self.watchlist[t.mint] = {"symbol": t.symbol, "first_seen": now}
+    def add_discovered_token(self, token) -> None:
+        """Called from the PumpPortal listener thread as new tokens/migrations stream in."""
+        with self._watchlist_lock:
+            if token.mint not in self.watchlist:
+                self.watchlist[token.mint] = {"symbol": token.symbol, "first_seen": time.time()}
 
-        if len(self.watchlist) > WATCHLIST_MAX_SIZE:
-            ordered = sorted(self.watchlist.items(), key=lambda kv: kv[1]["first_seen"], reverse=True)
-            self.watchlist = dict(ordered[:WATCHLIST_MAX_SIZE])
+            if len(self.watchlist) > WATCHLIST_MAX_SIZE:
+                ordered = sorted(self.watchlist.items(), key=lambda kv: kv[1]["first_seen"], reverse=True)
+                self.watchlist = dict(ordered[:WATCHLIST_MAX_SIZE])
 
     def _fetch_all_prices(self, mints):
         prices = {}
@@ -62,20 +63,17 @@ class Trader:
     def scan_and_buy(self) -> int:
         start = time.time()
 
-        try:
-            new_tokens = self.client.list_new_pumpfun_tokens(limit=100)
-            self._merge_watchlist(new_tokens)
-        except Exception as exc:
-            logger.warning(f"failed to fetch new pumpfun listings: {exc}")
+        with self._watchlist_lock:
+            mints = list(self.watchlist.keys())
+            symbols = {m: v["symbol"] for m, v in self.watchlist.items()}
 
-        mints = list(self.watchlist.keys())
         prices = self._fetch_all_prices(mints)
 
         results = []
         for mint, price in prices.items():
             history = self._update_history(mint, price)
             is_pump, pct_change = detect_pump(history, self.config.pump_window_minutes, self.config.pump_threshold_pct)
-            symbol = self.watchlist.get(mint, {}).get("symbol", "?")
+            symbol = symbols.get(mint, "?")
             results.append({"mint": mint, "symbol": symbol, "pct_change": pct_change, "is_pump": is_pump, "price": price})
 
         for r in results:

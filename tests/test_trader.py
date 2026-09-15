@@ -11,14 +11,10 @@ from src.trader import Trader
 
 
 class FakeClient:
-    def __init__(self, tokens, prices):
-        self.tokens = tokens  # list[Token]
+    def __init__(self, prices):
         self.prices = dict(prices)  # mint -> price, mutable across cycles in tests
         self.buys = []
         self.sells = []
-
-    def list_new_pumpfun_tokens(self, limit=100):
-        return self.tokens
 
     def get_prices_usd(self, mints):
         return {m: self.prices[m] for m in mints if m in self.prices}
@@ -55,9 +51,9 @@ def _prime_history(trader, mint, prices, window_seconds=900):
 
 def test_scan_and_buy_opens_position_on_pump(config):
     store = PositionStore(config.db_path)
-    tokens = [Token(mint="MintABC", symbol="ABC")]
-    client = FakeClient(tokens, {"MintABC": 1.0})
+    client = FakeClient({"MintABC": 1.0})
     trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
     client.prices["MintABC"] = 1.20  # next observed price triggers the pump
 
@@ -69,9 +65,9 @@ def test_scan_and_buy_opens_position_on_pump(config):
 
 def test_scan_and_buy_skips_existing_position(config):
     store = PositionStore(config.db_path)
-    tokens = [Token(mint="MintABC", symbol="ABC")]
-    client = FakeClient(tokens, {"MintABC": 1.0})
+    client = FakeClient({"MintABC": 1.0})
     trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
     client.prices["MintABC"] = 1.20
 
@@ -84,10 +80,23 @@ def test_scan_and_buy_skips_existing_position(config):
     assert second_count == 1
 
 
+def test_add_discovered_token_ignores_duplicates(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    first_seen = trader.watchlist["MintABC"]["first_seen"]
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+
+    assert len(trader.watchlist) == 1
+    assert trader.watchlist["MintABC"]["first_seen"] == first_seen
+
+
 def test_manage_open_positions_closes_on_take_profit(config):
     store = PositionStore(config.db_path)
     store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
-    client = FakeClient([], {"MintABC": 1.09})
+    client = FakeClient({"MintABC": 1.09})
     trader = Trader(client, config, store)
 
     trader.manage_open_positions()
@@ -100,7 +109,7 @@ def test_manage_open_positions_closes_on_take_profit(config):
 def test_manage_open_positions_closes_on_stop_loss(config):
     store = PositionStore(config.db_path)
     store.open_position("MintXYZ", "XYZ", 1.0, 100.0, 100.0)
-    client = FakeClient([], {"MintXYZ": 0.96})
+    client = FakeClient({"MintXYZ": 0.96})
     trader = Trader(client, config, store)
 
     trader.manage_open_positions()
@@ -113,7 +122,7 @@ def test_manage_open_positions_closes_on_stop_loss(config):
 def test_manage_open_positions_holds_when_within_range(config):
     store = PositionStore(config.db_path)
     store.open_position("MintSOL", "SOL2", 1.0, 100.0, 100.0)
-    client = FakeClient([], {"MintSOL": 1.02})
+    client = FakeClient({"MintSOL": 1.02})
     trader = Trader(client, config, store)
 
     trader.manage_open_positions()
@@ -123,10 +132,11 @@ def test_manage_open_positions_holds_when_within_range(config):
 
 def test_scan_and_buy_updates_market_state(config):
     store = PositionStore(config.db_path)
-    tokens = [Token(mint="MintABC", symbol="ABC"), Token(mint="MintDEF", symbol="DEF")]
-    client = FakeClient(tokens, {"MintABC": 1.0, "MintDEF": 1.0})
+    client = FakeClient({"MintABC": 1.0, "MintDEF": 1.0})
     market_state = MarketState()
     trader = Trader(client, config, store, market_state)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    trader.add_discovered_token(Token(mint="MintDEF", symbol="DEF"))
     _prime_history(trader, "MintABC", [1.0] * 15)
     _prime_history(trader, "MintDEF", [1.0] * 15)
     client.prices["MintABC"] = 1.20
