@@ -16,7 +16,7 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 PUMPFUN_API_BASE = "https://frontend-api.pump.fun"
-JUPITER_PRICE_API = "https://api.jup.ag/price/v2"
+JUPITER_PRICE_API = "https://api.jup.ag/price/v3"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
 
@@ -49,11 +49,11 @@ class SolanaClient:
             return {}
         resp = self._http.get(JUPITER_PRICE_API, params={"ids": ",".join(mints)})
         resp.raise_for_status()
-        data = resp.json().get("data", {})
+        data = resp.json()
         prices = {}
         for mint, entry in data.items():
-            if entry and entry.get("price"):
-                prices[mint] = float(entry["price"])
+            if entry and entry.get("usdPrice"):
+                prices[mint] = float(entry["usdPrice"])
         return prices
 
     def get_sol_balance(self) -> float:
