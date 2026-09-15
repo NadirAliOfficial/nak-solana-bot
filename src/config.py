@@ -35,7 +35,7 @@ class Config:
     )
 
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", "positions.db"))
-    dashboard_port: int = field(default_factory=lambda: int(os.getenv("DASHBOARD_PORT", "5061")))
+    dashboard_port: int = field(default_factory=lambda: int(os.getenv("DASHBOARD_PORT", "8090")))
     dashboard_host: str = field(default_factory=lambda: os.getenv("DASHBOARD_HOST", "127.0.0.1"))
     dashboard_user: str = field(default_factory=lambda: os.getenv("DASHBOARD_USER", ""))
     dashboard_password: str = field(default_factory=lambda: os.getenv("DASHBOARD_PASSWORD", ""))

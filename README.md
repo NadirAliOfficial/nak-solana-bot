@@ -57,7 +57,7 @@ source .venv/bin/activate
 python -m src.main
 ```
 
-Dashboard: http://localhost:5061 (port configurable via `DASHBOARD_PORT`; avoid 5060, browsers block it as an unsafe port)
+Dashboard: http://localhost:8090 (port configurable via `DASHBOARD_PORT`; avoid the 5060-5061 range, browsers block those as unsafe SIP ports)
 
 ## Tests
 
