@@ -1,12 +1,12 @@
 [Unit]
-Description=Solana Meme Momentum Bot
+Description=Solana Meme Bot
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/solana-meme-momentum-bot
-ExecStart=/opt/solana-meme-momentum-bot/.venv/bin/python -m src.main
+WorkingDirectory=/opt/solana-meme-bot
+ExecStart=/opt/solana-meme-bot/.venv/bin/python -m src.main
 Restart=on-failure
 RestartSec=5
 
