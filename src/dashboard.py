@@ -22,7 +22,7 @@ PAGE = """
 <head>
   <meta charset="utf-8">
   <meta name="color-scheme" content="light dark">
-  <title>Solana Meme Momentum Bot</title>
+  <title>Solana Meme Bot</title>
   <script>
     (function () {
       try {
@@ -204,9 +204,9 @@ PAGE = """
     <div class="kicker">{{ now_label }} &middot; live strategy monitor</div>
     <div class="topbar">
       <div class="brand-row">
-        <div class="logo-badge"><img src="/static/logo.png" alt="Solana Meme Momentum Bot logo"></div>
+        <div class="logo-badge"><img src="/static/logo.png" alt="Solana Meme Bot logo"></div>
         <div class="brand">
-          <h1 class="serif">Solana Meme Momentum Bot</h1>
+          <h1 class="serif">Solana Meme Bot</h1>
           <div class="sub">Watching {{ token_count }} pump.fun / Raydium tokens &middot; updated <span id="ts">just now</span></div>
         </div>
       </div>
@@ -254,7 +254,7 @@ PAGE = """
       <div id="closed-table" class="table-scroll">{{ closed_table_html|safe }}</div>
     </div>
 
-    <footer>Solana Meme Momentum Bot &middot; dashboard refreshes every 5 seconds</footer>
+    <footer>Solana Meme Bot &middot; dashboard refreshes every 5 seconds</footer>
   </div>
 
   <script>
@@ -534,7 +534,7 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
             return Response(
                 "Authentication required",
                 401,
-                {"WWW-Authenticate": 'Basic realm="Solana Meme Momentum Bot"'},
+                {"WWW-Authenticate": 'Basic realm="Solana Meme Bot"'},
             )
         return None
 
