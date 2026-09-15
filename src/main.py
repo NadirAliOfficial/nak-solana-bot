@@ -28,6 +28,7 @@ def _market_scan_loop(trader: Trader):
             logger.info(f"scan complete: watching {watched} tokens")
         except Exception as exc:
             logger.error(f"market scan failed: {exc}")
+        time.sleep(2)  # floor so a fast-failing discovery source can't spin the loop
 
 
 def main():
