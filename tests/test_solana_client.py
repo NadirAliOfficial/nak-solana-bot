@@ -51,6 +51,21 @@ def test_buy_sizing_for_sol_converts_through_live_price():
     assert amount_atomic == int(expected_sol * 1_000_000_000)
 
 
+def test_trade_currency_balance_usd_for_usdc_is_face_value():
+    client = _make_client("USDC")
+    client.get_trade_currency_balance = MagicMock(return_value=48.75)
+
+    assert client.get_trade_currency_balance_usd() == 48.75
+
+
+def test_trade_currency_balance_usd_for_sol_converts_through_price():
+    client = _make_client("SOL")
+    client.get_trade_currency_balance = MagicMock(return_value=3.09)
+    client.get_prices_usd = MagicMock(return_value={SOL_MINT: 97.08})
+
+    assert client.get_trade_currency_balance_usd() == 3.09 * 97.08
+
+
 def test_buy_sizing_for_sol_raises_if_price_unavailable():
     client = _make_client("SOL")
     client.get_prices_usd = MagicMock(return_value={})

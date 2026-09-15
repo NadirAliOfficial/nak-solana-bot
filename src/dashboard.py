@@ -553,7 +553,7 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
         if client is None:
             return None, None
         try:
-            balance = client.get_trade_currency_balance()
+            balance = client.get_trade_currency_balance_usd()
         except Exception:
             balance = None
         try:

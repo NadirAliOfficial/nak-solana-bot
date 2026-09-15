@@ -79,6 +79,15 @@ class SolanaClient:
             return self.get_sol_balance()
         return self.get_token_balance(self.trade_mint)
 
+    def get_trade_currency_balance_usd(self) -> float:
+        balance = self.get_trade_currency_balance()
+        if self.trade_mint == USDC_MINT:
+            return balance  # USDC is ~$1
+        price = self.get_prices_usd([self.trade_mint]).get(self.trade_mint)
+        if not price:
+            raise RuntimeError(f"could not price trade currency {self.trade_mint}")
+        return balance * price
+
     def get_wallet_address(self) -> Optional[str]:
         return str(self.keypair.pubkey()) if self.keypair else None
 

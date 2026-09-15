@@ -17,7 +17,7 @@ class FakePriceClient:
     def get_prices_usd(self, mints):
         return {m: self.prices[m] for m in mints if m in self.prices}
 
-    def get_trade_currency_balance(self):
+    def get_trade_currency_balance_usd(self):
         return self.balance
 
     def get_sol_balance(self):
