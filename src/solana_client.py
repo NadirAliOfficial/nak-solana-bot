@@ -1,4 +1,5 @@
 import base64
+import threading
 import time
 from typing import Dict, List, Optional
 
@@ -29,6 +30,22 @@ class Token:
         self.name = name
 
 
+class RateLimiter:
+    def __init__(self, max_per_second: float):
+        self._interval = 1.0 / max_per_second
+        self._lock = threading.Lock()
+        self._next_slot = 0.0
+
+    def wait(self):
+        with self._lock:
+            now = time.time()
+            start = max(now, self._next_slot)
+            self._next_slot = start + self._interval
+            delay = start - now
+        if delay > 0:
+            time.sleep(delay)
+
+
 class SolanaClient:
     def __init__(self, rpc_url: str, private_key_b58: str, trade_currency: str = "USDC"):
         self.rpc = SolanaRpcClient(rpc_url)
@@ -36,13 +53,26 @@ class SolanaClient:
         self.trade_mint = USDC_MINT if trade_currency.upper() == "USDC" else SOL_MINT
         self.trade_mint_decimals = USDC_DECIMALS if self.trade_mint == USDC_MINT else SOL_DECIMALS
         self._http = httpx.Client(timeout=10.0)
+        self._price_rate_limiter = RateLimiter(3)  # keep well under Jupiter's public rate limit
 
     def get_prices_usd(self, mints: List[str]) -> Dict[str, float]:
         if not mints:
             return {}
-        resp = self._http.get(JUPITER_PRICE_API, params={"ids": ",".join(mints)})
-        resp.raise_for_status()
-        data = resp.json()
+
+        data = None
+        for attempt in range(3):
+            self._price_rate_limiter.wait()
+            try:
+                resp = self._http.get(JUPITER_PRICE_API, params={"ids": ",".join(mints)})
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+        if data is None:
+            return {}
+
         prices = {}
         for mint, entry in data.items():
             if entry and entry.get("usdPrice"):
