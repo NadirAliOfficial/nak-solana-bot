@@ -95,14 +95,14 @@ def test_add_discovered_token_ignores_duplicates(config):
 
 
 def test_add_discovered_token_expires_by_age_not_count(config):
-    # pump_window_minutes=15 -> max age is 30 minutes (2x multiplier)
+    # pump_window_minutes=15 -> max age is 60 minutes (4x multiplier)
     store = PositionStore(config.db_path)
     client = FakeClient({})
     trader = Trader(client, config, store)
 
     old_mint = "MintOld"
-    trader.watchlist[old_mint] = {"symbol": "OLD", "first_seen": time.time() - 31 * 60}
-    trader.price_history[old_mint] = [(time.time() - 31 * 60, 1.0)]
+    trader.watchlist[old_mint] = {"symbol": "OLD", "first_seen": time.time() - 61 * 60}
+    trader.price_history[old_mint] = [(time.time() - 61 * 60, 1.0)]
 
     trader.add_discovered_token(Token(mint="MintNew", symbol="NEW"))
 
@@ -202,7 +202,7 @@ def test_save_and_load_state_round_trips(config, tmp_path):
 
 def test_load_state_drops_entries_older_than_max_age(config, tmp_path):
     state_path = os.path.join(tmp_path, "state.json")
-    stale_ts = time.time() - (config.pump_window_minutes * 60 * 2) - 60  # past the 2x max-age window
+    stale_ts = time.time() - (config.pump_window_minutes * 60 * 4) - 60  # past the 4x max-age window
     with open(state_path, "w") as f:
         json.dump(
             {

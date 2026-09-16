@@ -11,8 +11,8 @@ from .scanner import detect_pump
 logger = get_logger(__name__)
 
 TOP_MOVERS_LIMIT = 20
-WATCHLIST_MAX_AGE_MULTIPLIER = 2  # keep a token this many times the pump window before giving up on it
-WATCHLIST_HARD_CAP = 1500  # safety backstop if the discovery rate spikes; age-based expiry is the primary policy
+WATCHLIST_MAX_AGE_MULTIPLIER = 4  # keep a token this many times the pump window before giving up on it
+WATCHLIST_HARD_CAP = 3000  # safety backstop if the discovery rate spikes; age-based expiry is the primary policy
 JUPITER_BATCH_SIZE = 100
 TOKEN_DECIMALS = 6  # standard for pump.fun tokens; verify per-mint before enabling live trading at scale
 

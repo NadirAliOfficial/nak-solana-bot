@@ -10,8 +10,8 @@ logger = get_logger(__name__)
 
 GECKOTERMINAL_API_BASE = "https://api.geckoterminal.com/api/v2"
 RATE_LIMIT_PER_MINUTE = 7  # documented limit is 10/min; stay under it with margin
-PAGES_PER_POLL = 3  # trending + new pools pages fetched each cycle, within the rate limit
-POLL_INTERVAL_SECONDS = 90
+PAGES_PER_POLL = 6  # trending + new pools pages fetched each cycle, within the rate limit
+POLL_INTERVAL_SECONDS = 15  # small buffer between passes; the rate limiter itself paces the calls
 
 
 class RateLimiter:
