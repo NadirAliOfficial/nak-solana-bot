@@ -10,7 +10,8 @@ from .scanner import detect_pump
 logger = get_logger(__name__)
 
 TOP_MOVERS_LIMIT = 20
-WATCHLIST_MAX_SIZE = 300
+WATCHLIST_MAX_AGE_MULTIPLIER = 2  # keep a token this many times the pump window before giving up on it
+WATCHLIST_HARD_CAP = 1500  # safety backstop if the discovery rate spikes; age-based expiry is the primary policy
 JUPITER_BATCH_SIZE = 100
 TOKEN_DECIMALS = 6  # standard for pump.fun tokens; verify per-mint before enabling live trading at scale
 
@@ -32,14 +33,30 @@ class Trader:
         self._watchlist_lock = threading.Lock()
 
     def add_discovered_token(self, token) -> None:
-        """Called from the PumpPortal listener thread as new tokens/migrations stream in."""
+        """Called from the PumpPortal listener thread as new tokens/migrations stream in.
+
+        Tokens are expired by age, not by watchlist size: pump.fun launches far more
+        than a few hundred tokens within any 15-minute window, so a count-based cap
+        would evict tokens before they ever reach the full pump window needed to
+        measure momentum. Age-based expiry guarantees every token gets a fair shot.
+        """
+        now = time.time()
+        max_age_seconds = self.config.pump_window_minutes * 60 * WATCHLIST_MAX_AGE_MULTIPLIER
         with self._watchlist_lock:
             if token.mint not in self.watchlist:
-                self.watchlist[token.mint] = {"symbol": token.symbol, "first_seen": time.time()}
+                self.watchlist[token.mint] = {"symbol": token.symbol, "first_seen": now}
 
-            if len(self.watchlist) > WATCHLIST_MAX_SIZE:
+            cutoff = now - max_age_seconds
+            self.watchlist = {m: v for m, v in self.watchlist.items() if v["first_seen"] >= cutoff}
+
+            if len(self.watchlist) > WATCHLIST_HARD_CAP:
                 ordered = sorted(self.watchlist.items(), key=lambda kv: kv[1]["first_seen"], reverse=True)
-                self.watchlist = dict(ordered[:WATCHLIST_MAX_SIZE])
+                self.watchlist = dict(ordered[:WATCHLIST_HARD_CAP])
+
+            active_mints = set(self.watchlist.keys())
+
+        with self._history_lock:
+            self.price_history = {m: h for m, h in self.price_history.items() if m in active_mints}
 
     def _fetch_all_prices(self, mints):
         prices = {}

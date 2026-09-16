@@ -93,6 +93,36 @@ def test_add_discovered_token_ignores_duplicates(config):
     assert trader.watchlist["MintABC"]["first_seen"] == first_seen
 
 
+def test_add_discovered_token_expires_by_age_not_count(config):
+    # pump_window_minutes=15 -> max age is 30 minutes (2x multiplier)
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    old_mint = "MintOld"
+    trader.watchlist[old_mint] = {"symbol": "OLD", "first_seen": time.time() - 31 * 60}
+    trader.price_history[old_mint] = [(time.time() - 31 * 60, 1.0)]
+
+    trader.add_discovered_token(Token(mint="MintNew", symbol="NEW"))
+
+    assert old_mint not in trader.watchlist
+    assert old_mint not in trader.price_history
+    assert "MintNew" in trader.watchlist
+
+
+def test_add_discovered_token_keeps_recent_token_even_when_many_others_added(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    trader.add_discovered_token(Token(mint="MintFirst", symbol="FIRST"))
+    for i in range(50):
+        trader.add_discovered_token(Token(mint=f"MintFlood{i}", symbol="FLOOD"))
+
+    # still well within the window, should not have been evicted by the flood of new arrivals
+    assert "MintFirst" in trader.watchlist
+
+
 def test_manage_open_positions_closes_on_take_profit(config):
     store = PositionStore(config.db_path)
     store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
