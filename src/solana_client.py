@@ -19,8 +19,8 @@ SOL_DECIMALS = 9
 USDC_DECIMALS = 6
 
 JUPITER_PRICE_API = "https://api.jup.ag/price/v3"
-JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
-JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
+JUPITER_QUOTE_API = "https://api.jup.ag/swap/v1/quote"
+JUPITER_SWAP_API = "https://api.jup.ag/swap/v1/swap"
 
 
 class Token:
