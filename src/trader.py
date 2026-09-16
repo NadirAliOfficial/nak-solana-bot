@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 
@@ -57,6 +58,44 @@ class Trader:
 
         with self._history_lock:
             self.price_history = {m: h for m, h in self.price_history.items() if m in active_mints}
+
+    def save_state(self, path: str) -> None:
+        """Snapshot the watchlist and price history to disk so a restart (deploy,
+        crash, reboot) doesn't reset the 15-minute momentum-tracking clock."""
+        with self._watchlist_lock, self._history_lock:
+            data = {"watchlist": self.watchlist, "price_history": self.price_history}
+        try:
+            with open(path, "w") as f:
+                json.dump(data, f)
+        except Exception as exc:
+            logger.warning(f"failed to save watchlist state: {exc}")
+
+    def load_state(self, path: str) -> None:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return
+        except Exception as exc:
+            logger.warning(f"failed to load watchlist state: {exc}")
+            return
+
+        now = time.time()
+        max_age_seconds = self.config.pump_window_minutes * 60 * WATCHLIST_MAX_AGE_MULTIPLIER
+        cutoff = now - max_age_seconds
+
+        with self._watchlist_lock:
+            self.watchlist = {
+                m: v for m, v in data.get("watchlist", {}).items() if v.get("first_seen", 0) >= cutoff
+            }
+            active_mints = set(self.watchlist.keys())
+        with self._history_lock:
+            self.price_history = {
+                mint: [tuple(sample) for sample in history]
+                for mint, history in data.get("price_history", {}).items()
+                if mint in active_mints
+            }
+        logger.info(f"restored {len(self.watchlist)} watched tokens from disk")
 
     def _fetch_all_prices(self, mints):
         prices = {}

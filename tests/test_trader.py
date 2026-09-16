@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -178,3 +179,53 @@ def test_scan_and_buy_updates_market_state(config):
     assert snapshot["tokens_watched"] == 2
     top_symbols = [m["symbol"] for m in snapshot["top_movers"]]
     assert top_symbols[0] == "ABC"
+
+
+def test_save_and_load_state_round_trips(config, tmp_path):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0, 1.05, 1.10])
+
+    state_path = os.path.join(tmp_path, "state.json")
+    trader.save_state(state_path)
+
+    restored = Trader(client, config, store)
+    restored.load_state(state_path)
+
+    assert "MintABC" in restored.watchlist
+    assert restored.watchlist["MintABC"]["symbol"] == "ABC"
+    assert len(restored.price_history["MintABC"]) == 3
+    assert restored.price_history["MintABC"][-1][1] == 1.10
+
+
+def test_load_state_drops_entries_older_than_max_age(config, tmp_path):
+    state_path = os.path.join(tmp_path, "state.json")
+    stale_ts = time.time() - (config.pump_window_minutes * 60 * 2) - 60  # past the 2x max-age window
+    with open(state_path, "w") as f:
+        json.dump(
+            {
+                "watchlist": {"MintOld": {"symbol": "OLD", "first_seen": stale_ts}},
+                "price_history": {"MintOld": [[stale_ts, 1.0]]},
+            },
+            f,
+        )
+
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+    trader.load_state(state_path)
+
+    assert "MintOld" not in trader.watchlist
+    assert "MintOld" not in trader.price_history
+
+
+def test_load_state_missing_file_is_a_noop(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    trader.load_state("/nonexistent/path/state.json")  # should not raise
+
+    assert trader.watchlist == {}

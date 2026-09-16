@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 
@@ -22,11 +23,12 @@ def _position_monitor_loop(trader: Trader, config: Config):
         time.sleep(config.poll_interval_seconds)
 
 
-def _market_scan_loop(trader: Trader):
+def _market_scan_loop(trader: Trader, state_path: str):
     while True:
         try:
             watched = trader.scan_and_buy()
             logger.info(f"scan complete: watching {watched} tokens")
+            trader.save_state(state_path)
         except Exception as exc:
             logger.error(f"market scan failed: {exc}")
         time.sleep(10)  # price sampling cadence; discovery itself is event-driven via PumpPortal
@@ -38,6 +40,9 @@ def main():
     client = SolanaClient(config.rpc_url, config.private_key, config.trade_currency)
     market_state = MarketState()
     trader = Trader(client, config, store, market_state)
+
+    state_path = os.path.join(os.path.dirname(config.db_path) or ".", "watchlist_state.json")
+    trader.load_state(state_path)
 
     if config.dry_run:
         logger.info("Starting in DRY_RUN mode - no live swaps will be sent")
@@ -52,7 +57,7 @@ def main():
     dashboard_thread.start()
     logger.info(f"Dashboard running on http://{config.dashboard_host}:{config.dashboard_port}")
 
-    scan_thread = threading.Thread(target=_market_scan_loop, args=(trader,), daemon=True)
+    scan_thread = threading.Thread(target=_market_scan_loop, args=(trader, state_path), daemon=True)
     scan_thread.start()
 
     listener = PumpPortalListener(on_new_token=trader.add_discovered_token)

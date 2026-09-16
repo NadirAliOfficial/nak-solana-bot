@@ -1,5 +1,6 @@
 .env
 *.db
+watchlist_state.json
 logs/*
 __pycache__/
 *.pyc
