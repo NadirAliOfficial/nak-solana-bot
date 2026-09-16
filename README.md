@@ -23,13 +23,24 @@ a high rug pull and honeypot risk; see the warnings below before running live.
 ## How it watches the market
 
 Unlike Coinbase, Solana tokens have no ready-made candle API, especially for
-tokens seconds old. New launches and Raydium migrations stream in continuously
-over PumpPortal's free WebSocket feed (`wss://pumpportal.fun/api/data`) and
-feed a watchlist (capped at 300 tokens); pump.fun's own REST API
-(`frontend-api.pump.fun`) was retired and no longer works. Separately, the bot
-polls Jupiter's price API every 10s for whatever's on the watchlist and builds
-its own rolling price history in memory. Momentum is computed from that
-accumulated history.
+tokens seconds old. Two discovery sources feed a single watchlist (tokens are
+expired by age, not count, so each gets a fair 30-minute window):
+
+- **PumpPortal** (`wss://pumpportal.fun/api/data`, free) streams brand new
+  Pump.fun launches and Raydium migrations in real time. It only sees activity
+  from the moment the bot connects, so it can't find tokens that already
+  existed before that — pump.fun's own REST API (`frontend-api.pump.fun`) was
+  retired and no longer works.
+- **GeckoTerminal** (free, no API key) is polled every 90s for trending and
+  newly listed pools across all of Solana (Raydium, pumpswap, Orca, Meteora),
+  covering established tokens with renewed momentum that PumpPortal would
+  never see.
+
+The bot polls Jupiter's price API every 10s for whatever's on the combined
+watchlist and builds its own rolling price history in memory; momentum is
+computed from that accumulated history. The watchlist and price history are
+also persisted to disk (`watchlist_state.json`) so a restart doesn't reset the
+tracking window.
 
 ## Setup
 
