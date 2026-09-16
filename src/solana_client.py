@@ -112,21 +112,31 @@ class SolanaClient:
         return str(self.keypair.pubkey()) if self.keypair else None
 
     def _get_quote(self, input_mint: str, output_mint: str, amount: int, slippage_bps: int) -> dict:
-        resp = self._http.get(
-            JUPITER_QUOTE_API,
-            params={
-                "inputMint": input_mint,
-                "outputMint": output_mint,
-                "amount": amount,
-                "slippageBps": slippage_bps,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+        last_exc = None
+        for attempt in range(3):
+            self._price_rate_limiter.wait()
+            try:
+                resp = self._http.get(
+                    JUPITER_QUOTE_API,
+                    params={
+                        "inputMint": input_mint,
+                        "outputMint": output_mint,
+                        "amount": amount,
+                        "slippageBps": slippage_bps,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(1.0 * (attempt + 1))
+        raise last_exc
 
     def swap(self, input_mint: str, output_mint: str, amount: int, slippage_bps: int) -> str:
         quote = self._get_quote(input_mint, output_mint, amount, slippage_bps)
 
+        self._price_rate_limiter.wait()
         swap_resp = self._http.post(
             JUPITER_SWAP_API,
             json={
