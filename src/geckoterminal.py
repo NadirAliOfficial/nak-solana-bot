@@ -9,8 +9,8 @@ from .solana_client import Token
 logger = get_logger(__name__)
 
 GECKOTERMINAL_API_BASE = "https://api.geckoterminal.com/api/v2"
-RATE_LIMIT_PER_MINUTE = 10
-PAGES_PER_POLL = 4  # trending + new pools pages fetched each cycle, within the rate limit
+RATE_LIMIT_PER_MINUTE = 7  # documented limit is 10/min; stay under it with margin
+PAGES_PER_POLL = 3  # trending + new pools pages fetched each cycle, within the rate limit
 POLL_INTERVAL_SECONDS = 90
 
 
@@ -52,14 +52,22 @@ class GeckoTerminalClient:
         self._rate_limiter = RateLimiter(RATE_LIMIT_PER_MINUTE)
 
     def _get_pools(self, endpoint: str, page: int) -> list:
-        self._rate_limiter.wait()
-        resp = self._http.get(
-            f"{GECKOTERMINAL_API_BASE}/networks/solana/{endpoint}",
-            params={"page": page},
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        return resp.json().get("data", [])
+        last_exc = None
+        for attempt in range(3):
+            self._rate_limiter.wait()
+            try:
+                resp = self._http.get(
+                    f"{GECKOTERMINAL_API_BASE}/networks/solana/{endpoint}",
+                    params={"page": page},
+                    headers={"Accept": "application/json"},
+                )
+                resp.raise_for_status()
+                return resp.json().get("data", [])
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+        raise last_exc
 
     def list_trending_and_new_tokens(self, pages: int = PAGES_PER_POLL) -> list:
         tokens = []
