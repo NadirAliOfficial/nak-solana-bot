@@ -10,7 +10,6 @@ from .scanner import detect_pump
 
 logger = get_logger(__name__)
 
-TOP_MOVERS_LIMIT = 20
 WATCHLIST_MAX_AGE_MULTIPLIER = 4  # keep a token this many times the pump window before giving up on it
 WATCHLIST_HARD_CAP = 3000  # safety backstop if the discovery rate spikes; age-based expiry is the primary policy
 JUPITER_BATCH_SIZE = 100
@@ -148,7 +147,7 @@ class Trader:
             self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
 
         if self.market_state is not None:
-            top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)[:TOP_MOVERS_LIMIT]
+            top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)
             self.market_state.update(top_movers, len(mints), time.time() - start)
 
         return len(mints)
