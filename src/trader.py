@@ -149,6 +149,12 @@ class Trader:
             except Exception as exc:
                 logger.warning(f"could not fetch tradable balance: {exc}")
 
+        # In dry run mode, deduct cumulative paper P&L so simulated balance reflects real losses (no infinite reload)
+        if available_funds_usd is not None and self.config.dry_run:
+            closed_stats = self.store.get_closed_stats()
+            total_realized_pnl = closed_stats.get("total_pnl", 0.0)
+            available_funds_usd = max(0.0, available_funds_usd + total_realized_pnl)
+
         for r in results:
             if not r["is_pump"]:
                 continue

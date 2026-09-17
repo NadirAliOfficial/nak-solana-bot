@@ -451,7 +451,14 @@ def _todays_pnl(closed_positions):
 
 
 def _render_stats(
-    open_positions, closed_positions, balance, sol_balance, position_size_usd, closed_stats=None, today_stats=None
+    open_positions,
+    closed_positions,
+    balance,
+    sol_balance,
+    position_size_usd,
+    closed_stats=None,
+    today_stats=None,
+    dry_run=True,
 ) -> str:
     if closed_stats is not None:
         total_pnl = closed_stats.get("total_pnl", 0.0)
@@ -474,6 +481,7 @@ def _render_stats(
 
     pnl_cls = "green" if total_pnl >= 0 else "red"
     today_cls = "green" if today_pnl >= 0 else "red"
+    sol_value = f"{sol_balance:.3f} SOL" if sol_balance is not None else "&mdash;"
 
     if balance is None:
         balance_value = "&mdash;"
@@ -481,14 +489,20 @@ def _render_stats(
         balance_foot_cls = "warn"
     else:
         balance_value = f"${balance:,.2f}"
-        if balance < position_size_usd:
+        if dry_run:
+            paper_equity = max(0.0, balance + total_pnl)
+            if paper_equity < position_size_usd:
+                balance_foot = f"Paper funds depleted (${paper_equity:.2f}) &middot; buys paused"
+                balance_foot_cls = "warn"
+            else:
+                balance_foot = f"Paper equity: ${paper_equity:,.2f} &middot; Real: {sol_value}"
+                balance_foot_cls = ""
+        elif balance < position_size_usd:
             balance_foot = f"below ${position_size_usd:,.0f} position size"
             balance_foot_cls = "warn"
         else:
             balance_foot = "available to trade"
             balance_foot_cls = ""
-
-    sol_value = f"{sol_balance:.3f} SOL" if sol_balance is not None else "&mdash;"
 
     return f"""
     <div class="grid">
@@ -770,6 +784,7 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
                 config.position_size_usd,
                 closed_stats,
                 today_stats,
+                config.dry_run,
             ),
             "top_movers_html": _render_top_movers(snapshot, config.pump_threshold_pct),
             "open_table_html": _render_open_table(open_positions, prices),

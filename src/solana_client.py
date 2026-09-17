@@ -70,13 +70,37 @@ class SolanaClient:
             except Exception:
                 if attempt < 2:
                     time.sleep(0.5 * (attempt + 1))
-        if data is None:
-            return {}
-
         prices = {}
-        for mint, entry in data.items():
-            if entry and entry.get("usdPrice"):
-                prices[mint] = float(entry["usdPrice"])
+        if data:
+            for mint, entry in data.items():
+                if entry and entry.get("usdPrice"):
+                    try:
+                        prices[mint] = float(entry["usdPrice"])
+                    except (ValueError, TypeError):
+                        pass
+
+        # Fallback to DexScreener if any tokens are missing or Jupiter was rate-limited (HTTP 429)
+        missing = [m for m in mints if m not in prices]
+        if missing:
+            for i in range(0, len(missing), 30):
+                chunk = missing[i : i + 30]
+                try:
+                    resp = self._http.get(
+                        f"https://api.dexscreener.com/latest/dex/tokens/{','.join(chunk)}"
+                    )
+                    if resp.status_code == 200:
+                        pairs = resp.json().get("pairs") or []
+                        for p in pairs:
+                            base_addr = p.get("baseToken", {}).get("address")
+                            price_str = p.get("priceUsd")
+                            if base_addr and price_str and base_addr not in prices:
+                                try:
+                                    prices[base_addr] = float(price_str)
+                                except (ValueError, TypeError):
+                                    pass
+                except Exception as exc:
+                    logger.debug(f"dexscreener fallback error: {exc}")
+
         return prices
 
     def get_sol_balance(self) -> float:
