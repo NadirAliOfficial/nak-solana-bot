@@ -459,15 +459,11 @@ def _render_stats(
         balance_foot_cls = "warn"
     else:
         balance_value = f"${balance:,.2f}"
-        free_after_exposure = max(0.0, balance - open_exposure)
         if balance < position_size_usd:
             balance_foot = f"below ${position_size_usd:,.0f} position size"
             balance_foot_cls = "warn"
-        elif free_after_exposure < position_size_usd:
-            balance_foot = f"${free_after_exposure:,.2f} free (capacity full)"
-            balance_foot_cls = "warn"
         else:
-            balance_foot = f"${free_after_exposure:,.2f} free to trade"
+            balance_foot = "available to trade"
             balance_foot_cls = ""
 
     sol_value = f"{sol_balance:.3f} SOL" if sol_balance is not None else "&mdash;"
@@ -724,10 +720,7 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
         if client is None:
             return None, None
         try:
-            if hasattr(client, "get_tradable_balance_usd"):
-                balance = client.get_tradable_balance_usd(config.gas_reserve_sol)
-            else:
-                balance = client.get_trade_currency_balance_usd()
+            balance = client.get_trade_currency_balance_usd()
         except Exception:
             balance = None
         try:
