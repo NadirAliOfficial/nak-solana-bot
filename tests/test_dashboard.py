@@ -133,3 +133,34 @@ def test_todays_pnl_only_counts_trades_closed_today():
     total, count = _todays_pnl(closed)
     assert count == 1
     assert total == 8.0
+
+
+def test_copy_address_button_rendered_in_all_tables(store):
+    store.open_position("MintOpen123456", "OPEN", 1.0, 100.0, 100.0)
+    pid = store.open_position("MintClosed123456", "CLS", 0.5, 200.0, 100.0)
+    store.close_position(pid, 0.54, "take_profit")
+
+    market_state = MarketState()
+    market_state.update(
+        top_movers=[
+            {"mint": "MintMover123456", "symbol": "MOVR", "pct_change": 20.0, "is_pump": True, "price": 1.5},
+        ],
+        tokens_watched=10,
+        scan_seconds=1.2,
+    )
+
+    app = create_app(store, client=None, config=Config(), market_state=market_state)
+    resp = app.test_client().get("/")
+    html = resp.data.decode("utf-8")
+
+    # verify open positions has copy button with mint and content_copy icon
+    assert 'data-mint="MintOpen123456"' in html
+    # verify closed positions has copy button with mint
+    assert 'data-mint="MintClosed123456"' in html
+    # verify top movers has copy button with mint
+    assert 'data-mint="MintMover123456"' in html
+
+    # verify copy button class, icon and script are included
+    assert 'class="copy-btn"' in html
+    assert "content_copy" in html
+    assert "copyAddress" in html

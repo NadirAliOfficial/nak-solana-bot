@@ -16,6 +16,20 @@ def _short_mint(mint: str) -> str:
     return f"{mint[:4]}…{mint[-4:]}" if len(mint) > 10 else mint
 
 
+def _render_token_cell(symbol: str, mint: str) -> str:
+    badge = symbol[:1] if symbol else "?"
+    short = _short_mint(mint)
+    return (
+        f'<span class="sym">'
+        f'<span class="coin-badge">{badge}</span>{symbol}'
+        f'<span class="tick">{short}</span>'
+        f'<button type="button" class="copy-btn" data-mint="{mint}" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address">'
+        f'<span class="icon">content_copy</span>'
+        f'</button>'
+        f'</span>'
+    )
+
+
 PAGE = """
 <!doctype html>
 <html>
@@ -160,6 +174,31 @@ PAGE = """
       display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
       margin-right: 8px; flex: none;
     }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      margin-left: 4px;
+      cursor: pointer;
+      color: var(--ink-faint);
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.15s ease, background-color 0.15s ease;
+      vertical-align: middle;
+    }
+    .copy-btn:hover {
+      color: var(--ink);
+      background: var(--hairline);
+    }
+    .copy-btn .icon {
+      font-size: 13px;
+    }
+    .copy-btn.copied {
+      color: var(--green);
+    }
 
     .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
     .tag .icon { font-size: 15px; }
@@ -272,6 +311,48 @@ PAGE = """
       var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       html.setAttribute('data-theme', next);
       try { localStorage.setItem('smb-theme', next); } catch (e) {}
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand('copy'); } catch (err) {}
+      document.body.removeChild(ta);
+    }
+
+    function copyAddress(btn) {
+      const text = btn.dataset.mint;
+      if (!text) return;
+      function showFeedback() {
+        const icon = btn.querySelector('.icon');
+        if (icon) {
+          const orig = icon.textContent;
+          icon.textContent = 'check';
+          btn.classList.add('copied');
+          btn.setAttribute('title', 'Copied!');
+          setTimeout(() => {
+            icon.textContent = orig;
+            btn.classList.remove('copied');
+            btn.setAttribute('title', 'Copy address');
+          }, 1500);
+        }
+      }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(showFeedback).catch(() => {
+          fallbackCopy(text);
+          showFeedback();
+        });
+      } else {
+        fallbackCopy(text);
+        showFeedback();
+      }
     }
 
     const ROWS_PER_PAGE = 10;
@@ -469,7 +550,7 @@ def _render_open_table(open_positions, price_lookup) -> str:
         symbol = p["token_symbol"]
         rows.append(f"""
         <tr>
-          <td><span class="sym"><span class="coin-badge">{symbol[:1]}</span>{symbol}<span class="tick">{_short_mint(p['token_mint'])}</span></span></td>
+          <td>{_render_token_cell(symbol, p['token_mint'])}</td>
           <td class="num">{p['entry_price']:.8f}</td>
           <td class="num">{p['quantity']:.2f}</td>
           <td class="num">${p['usd_size']:.2f}</td>
@@ -506,7 +587,7 @@ def _render_closed_table(closed_positions) -> str:
         symbol = p["token_symbol"]
         rows.append(f"""
         <tr>
-          <td><span class="sym"><span class="coin-badge">{symbol[:1]}</span>{symbol}<span class="tick">{_short_mint(p['token_mint'])}</span></span></td>
+          <td>{_render_token_cell(symbol, p['token_mint'])}</td>
           <td class="num">{p['entry_price']:.8f}</td>
           <td class="num">{p['exit_price']:.8f}</td>
           <td>{tag}</td>
@@ -553,7 +634,7 @@ def _render_top_movers(snapshot, threshold_pct) -> str:
 
         rows.append(f"""
         <tr>
-          <td><span class="sym"><span class="coin-badge">{symbol[:1]}</span>{symbol}<span class="tick">{_short_mint(m['mint'])}</span></span></td>
+          <td>{_render_token_cell(symbol, m['mint'])}</td>
           <td class="num {pct_cls}">{pct:+.2f}%</td>
           <td>
             <div class="mover-bar">
