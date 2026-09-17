@@ -139,6 +139,16 @@ class Trader:
             symbol = symbols.get(mint, "?")
             results.append({"mint": mint, "symbol": symbol, "pct_change": pct_change, "is_pump": is_pump, "price": price})
 
+        open_positions = self.store.get_open_positions()
+        currently_exposed_usd = sum(p["usd_size"] for p in open_positions)
+
+        available_funds_usd = None
+        if self.client is not None and hasattr(self.client, "get_tradable_balance_usd"):
+            try:
+                available_funds_usd = self.client.get_tradable_balance_usd(self.config.gas_reserve_sol)
+            except Exception as exc:
+                logger.warning(f"could not fetch tradable balance: {exc}")
+
         for r in results:
             if not r["is_pump"]:
                 continue
@@ -147,29 +157,21 @@ class Trader:
             if self.store.has_recent_position(r["mint"], cooldown_seconds):
                 continue
 
-            open_count = len(self.store.get_open_positions())
+            open_count = len(open_positions)
             if open_count >= self.config.max_open_positions:
                 logger.info(
                     f"skipping buy for {r['symbol']}: reached max open positions limit ({self.config.max_open_positions})"
                 )
                 break
 
-            if not self.config.dry_run and self.client is not None:
-                try:
-                    sol_bal = self.client.get_sol_balance()
-                    if sol_bal < self.config.gas_reserve_sol:
-                        logger.warning(
-                            f"insufficient SOL for gas reserve: {sol_bal:.3f} < {self.config.gas_reserve_sol:.3f}"
-                        )
-                        break
-                    avail_bal = self.client.get_trade_currency_balance_usd()
-                    if avail_bal < self.config.position_size_usd:
-                        logger.warning(
-                            f"insufficient balance for buy: ${avail_bal:.2f} < ${self.config.position_size_usd:.2f}"
-                        )
-                        break
-                except Exception as exc:
-                    logger.warning(f"pre-buy balance check failed: {exc}")
+            # STRICT BALANCE CONSTRAINT: Even in dry run, you cannot buy more than available real balance
+            if available_funds_usd is not None:
+                free_capacity_usd = max(0.0, available_funds_usd - currently_exposed_usd)
+                if free_capacity_usd < self.config.position_size_usd:
+                    logger.info(
+                        f"skipping buy for {r['symbol']}: insufficient available funds (${free_capacity_usd:.2f} free < ${self.config.position_size_usd:.2f} size | tradable: ${available_funds_usd:.2f}, exposed: ${currently_exposed_usd:.2f})"
+                    )
+                    break
 
             quantity = self.config.position_size_usd / r["price"]
             logger.info(
@@ -186,7 +188,9 @@ class Trader:
                     buy_ok = False
 
             if buy_ok:
-                self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
+                pos_id = self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
+                currently_exposed_usd += self.config.position_size_usd
+                open_positions.append({"id": pos_id, "token_mint": r["mint"], "usd_size": self.config.position_size_usd})
 
         if self.market_state is not None:
             top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)

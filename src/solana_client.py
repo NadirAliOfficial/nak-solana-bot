@@ -94,6 +94,39 @@ class SolanaClient:
         info = resp.value[0].account.data.parsed["info"]
         return float(info["tokenAmount"]["uiAmount"] or 0.0)
 
+    def get_sol_price_usd(self) -> float:
+        try:
+            prices = self.get_prices_usd([SOL_MINT])
+            if prices.get(SOL_MINT):
+                self._last_sol_price = prices[SOL_MINT]
+                return self._last_sol_price
+        except Exception:
+            pass
+
+        try:
+            resp = self._http.get("https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT", timeout=5.0)
+            if resp.status_code == 200:
+                p = float(resp.json().get("price", 0.0))
+                if p > 0:
+                    self._last_sol_price = p
+                    return self._last_sol_price
+        except Exception:
+            pass
+
+        try:
+            resp = self._http.get(
+                "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", timeout=5.0
+            )
+            if resp.status_code == 200:
+                p = float(resp.json().get("solana", {}).get("usd", 0.0))
+                if p > 0:
+                    self._last_sol_price = p
+                    return self._last_sol_price
+        except Exception:
+            pass
+
+        return getattr(self, "_last_sol_price", 100.0)
+
     def get_trade_currency_balance(self) -> float:
         if self.trade_mint == SOL_MINT:
             return self.get_sol_balance()
@@ -103,10 +136,16 @@ class SolanaClient:
         balance = self.get_trade_currency_balance()
         if self.trade_mint == USDC_MINT:
             return balance  # USDC is ~$1
-        price = self.get_prices_usd([self.trade_mint]).get(self.trade_mint)
-        if not price:
-            raise RuntimeError(f"could not price trade currency {self.trade_mint}")
+        price = self.get_sol_price_usd()
         return balance * price
+
+    def get_tradable_balance_usd(self, gas_reserve_sol: float = 0.5) -> float:
+        if self.trade_mint == USDC_MINT:
+            return self.get_token_balance(USDC_MINT)
+        total_sol = self.get_sol_balance()
+        tradable_sol = max(0.0, total_sol - gas_reserve_sol)
+        price = self.get_sol_price_usd()
+        return tradable_sol * price
 
     def get_wallet_address(self) -> Optional[str]:
         return str(self.keypair.pubkey()) if self.keypair else None
