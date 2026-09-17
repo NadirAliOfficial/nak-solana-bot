@@ -204,7 +204,7 @@ class Trader:
 
         return len(mints)
 
-    def manage_open_positions(self) -> None:
+    def manage_open_positions(self) -> bool:
         max_age_seconds = self.config.max_position_hold_minutes * 60
         stale_closed = self.store.close_stale_positions(max_age_seconds)
         if stale_closed > 0:
@@ -214,10 +214,13 @@ class Trader:
 
         open_positions = self.store.get_open_positions()
         if not open_positions:
-            return
+            return False
 
         mints = [p["token_mint"] for p in open_positions]
-        prices = self._fetch_all_prices(mints)
+        if self.client is not None and hasattr(self.client, "get_fast_prices_usd"):
+            prices = self.client.get_fast_prices_usd(mints)
+        else:
+            prices = self._fetch_all_prices(mints)
 
         now = time.time()
         for position in open_positions:
@@ -234,8 +237,6 @@ class Trader:
                         f"closing dead position for {position['token_symbol']} ({mint[:8]}): price unavailable after {int(pos_age/60)}m"
                     )
                     self.store.close_position(position["id"], 0.0, "dead_token")
-                else:
-                    logger.warning(f"failed to fetch price for {position['token_symbol']} ({mint[:8]})")
                 continue
 
             exit_reason = None
@@ -247,8 +248,9 @@ class Trader:
             if exit_reason is None:
                 continue
 
+            pct = ((current_price - entry_price) / entry_price) * 100
             logger.info(
-                f"{exit_reason.upper()} {position['token_symbol']} ({mint[:8]}) "
+                f"REALTIME {exit_reason.upper()} {position['token_symbol']} ({mint[:8]}): {pct:+.2f}% "
                 f"entry={entry_price} exit={current_price}"
             )
 
@@ -262,6 +264,8 @@ class Trader:
 
             if sell_ok:
                 self.store.close_position(position["id"], current_price, exit_reason)
+
+        return True
 
     def run_cycle(self) -> None:
         self.manage_open_positions()

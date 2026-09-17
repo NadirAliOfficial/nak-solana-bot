@@ -19,10 +19,12 @@ logger = get_logger(__name__)
 def _position_monitor_loop(trader: Trader, config: Config):
     while True:
         try:
-            trader.manage_open_positions()
+            has_open = trader.manage_open_positions()
         except Exception as exc:
             logger.error(f"position monitor failed: {exc}")
-        time.sleep(config.poll_interval_seconds)
+            has_open = False
+        # When positions are open, monitor in real-time (0.5s sub-second loop)!
+        time.sleep(0.5 if has_open else 1.0)
 
 
 def _geckoterminal_discovery_loop(trader: Trader, client: GeckoTerminalClient):

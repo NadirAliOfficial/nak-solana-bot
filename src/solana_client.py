@@ -103,6 +103,36 @@ class SolanaClient:
 
         return prices
 
+    def get_fast_prices_usd(self, mints: List[str]) -> Dict[str, float]:
+        """Sub-200ms ultra-fast price lookup specifically for open positions via DexScreener."""
+        if not mints:
+            return {}
+        prices = {}
+        for i in range(0, len(mints), 30):
+            chunk = mints[i : i + 30]
+            try:
+                resp = self._http.get(
+                    f"https://api.dexscreener.com/latest/dex/tokens/{','.join(chunk)}"
+                )
+                if resp.status_code == 200:
+                    pairs = resp.json().get("pairs") or []
+                    for p in pairs:
+                        base_addr = p.get("baseToken", {}).get("address")
+                        price_str = p.get("priceUsd")
+                        if base_addr and price_str and base_addr not in prices:
+                            try:
+                                prices[base_addr] = float(price_str)
+                            except (ValueError, TypeError):
+                                pass
+            except Exception as exc:
+                logger.debug(f"dexscreener fast price error: {exc}")
+
+        # If any open position wasn't on DexScreener yet, try standard lookup
+        missing = [m for m in mints if m not in prices]
+        if missing:
+            prices.update(self.get_prices_usd(missing))
+        return prices
+
     def get_sol_balance(self) -> float:
         resp = self.rpc.get_balance(self.keypair.pubkey())
         return resp.value / 1_000_000_000
