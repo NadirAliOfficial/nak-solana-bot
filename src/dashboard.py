@@ -13,6 +13,16 @@ def _fmt_usd(value: float) -> str:
     return f"{sign}${abs(value):,.2f}"
 
 
+def _fmt_price(price: float) -> str:
+    if price is None:
+        return "&mdash;"
+    if price == 0.0:
+        return "0.00"
+    if abs(price) < 1e-5:
+        return f"{price:.4e}"
+    return f"{price:.8f}"
+
+
 def _short_mint(mint: str) -> str:
     return f"{mint[:4]}…{mint[-4:]}" if len(mint) > 10 else mint
 
@@ -292,16 +302,16 @@ PAGE = """
 
     <div class="section">
       <div class="section-head"><h2><span class="icon">show_chart</span>Equity curve</h2><span class="count">realized P&amp;L over time</span></div>
-      {{ equity_svg|safe }}
+      <div id="equity-curve">{{ equity_svg|safe }}</div>
     </div>
 
     <div class="section">
-      <div class="section-head"><h2><span class="icon">radar</span>Open positions</h2><span class="count">{{ open_positions|length }} active</span></div>
+      <div class="section-head"><h2><span class="icon">radar</span>Open positions</h2><span class="count" id="open-count">{{ open_positions|length }} active</span></div>
       <div id="open-table" class="table-scroll">{{ open_table_html|safe }}</div>
     </div>
 
     <div class="section" style="border-bottom: none;">
-      <div class="section-head"><h2><span class="icon">receipt_long</span>Closed trades</h2><span class="count">{{ closed_positions|length }} total</span></div>
+      <div class="section-head"><h2><span class="icon">receipt_long</span>Closed trades</h2><span class="count" id="closed-count">{{ closed_positions|length }} total</span></div>
       <div id="closed-table" class="table-scroll">{{ closed_table_html|safe }}</div>
     </div>
 
@@ -408,6 +418,18 @@ PAGE = """
         const data = await res.json();
         document.getElementById('stats').innerHTML = data.stats_html;
         document.getElementById('top-movers').innerHTML = data.top_movers_html;
+        if (data.equity_svg) {
+          const eqEl = document.getElementById('equity-curve');
+          if (eqEl) eqEl.innerHTML = data.equity_svg;
+        }
+        if (data.open_count !== undefined) {
+          const ocEl = document.getElementById('open-count');
+          if (ocEl) ocEl.textContent = data.open_count + ' active';
+        }
+        if (data.closed_count !== undefined) {
+          const ccEl = document.getElementById('closed-count');
+          if (ccEl) ccEl.textContent = data.closed_count + ' total';
+        }
         document.getElementById('open-table').innerHTML = data.open_table_html;
         document.getElementById('closed-table').innerHTML = data.closed_table_html;
         document.getElementById('ts').textContent = new Date().toLocaleTimeString();
@@ -557,7 +579,7 @@ def _render_open_table(open_positions, price_lookup) -> str:
             unrealized_usd = (current_price - p["entry_price"]) * p["quantity"]
             cls = "pos" if unrealized_usd >= 0 else "neg"
             live_cols = f"""
-              <td class="num">{current_price:.8f}</td>
+              <td class="num">{_fmt_price(current_price)}</td>
               <td class="num {cls}">{_fmt_usd(unrealized_usd)}</td>
               <td class="num {cls}">{unrealized_pct:+.2f}%</td>
             """
@@ -569,7 +591,7 @@ def _render_open_table(open_positions, price_lookup) -> str:
         rows.append(f"""
         <tr>
           <td>{_render_token_cell(symbol, p['token_mint'])}</td>
-          <td class="num">{p['entry_price']:.8f}</td>
+          <td class="num">{_fmt_price(p['entry_price'])}</td>
           <td class="num">{p['quantity']:.2f}</td>
           <td class="num">${p['usd_size']:.2f}</td>
           {live_cols}
@@ -606,8 +628,8 @@ def _render_closed_table(closed_positions) -> str:
         rows.append(f"""
         <tr>
           <td>{_render_token_cell(symbol, p['token_mint'])}</td>
-          <td class="num">{p['entry_price']:.8f}</td>
-          <td class="num">{p['exit_price']:.8f}</td>
+          <td class="num">{_fmt_price(p['entry_price'])}</td>
+          <td class="num">{_fmt_price(p['exit_price'])}</td>
           <td>{tag}</td>
           <td class="num {cls_usd}">{_fmt_usd(p['pnl_usd'])}</td>
           <td class="num {cls_pct}">{p['pnl_pct']:+.2f}%</td>
@@ -779,6 +801,9 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
                 "top_movers_html": frag["top_movers_html"],
                 "open_table_html": frag["open_table_html"],
                 "closed_table_html": frag["closed_table_html"],
+                "equity_svg": frag["equity_svg"],
+                "open_count": len(frag["open_positions"]),
+                "closed_count": len(frag["closed_positions"]),
             }
         )
 
