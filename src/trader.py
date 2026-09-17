@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 
@@ -59,15 +60,22 @@ class Trader:
             self.price_history = {m: h for m, h in self.price_history.items() if m in active_mints}
 
     def save_state(self, path: str) -> None:
-        """Snapshot the watchlist and price history to disk so a restart (deploy,
+        """Snapshot the watchlist and price history to disk atomically so a restart (deploy,
         crash, reboot) doesn't reset the 15-minute momentum-tracking clock."""
         with self._watchlist_lock, self._history_lock:
             data = {"watchlist": self.watchlist, "price_history": self.price_history}
+        tmp_path = f"{path}.tmp"
         try:
-            with open(path, "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump(data, f)
+            os.replace(tmp_path, path)
         except Exception as exc:
             logger.warning(f"failed to save watchlist state: {exc}")
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def load_state(self, path: str) -> None:
         try:
@@ -132,8 +140,36 @@ class Trader:
             results.append({"mint": mint, "symbol": symbol, "pct_change": pct_change, "is_pump": is_pump, "price": price})
 
         for r in results:
-            if not r["is_pump"] or self.store.has_open_position(r["mint"]):
+            if not r["is_pump"]:
                 continue
+
+            cooldown_seconds = self.config.rebuy_cooldown_minutes * 60
+            if self.store.has_recent_position(r["mint"], cooldown_seconds):
+                continue
+
+            open_count = len(self.store.get_open_positions())
+            if open_count >= self.config.max_open_positions:
+                logger.info(
+                    f"skipping buy for {r['symbol']}: reached max open positions limit ({self.config.max_open_positions})"
+                )
+                break
+
+            if not self.config.dry_run and self.client is not None:
+                try:
+                    sol_bal = self.client.get_sol_balance()
+                    if sol_bal < self.config.gas_reserve_sol:
+                        logger.warning(
+                            f"insufficient SOL for gas reserve: {sol_bal:.3f} < {self.config.gas_reserve_sol:.3f}"
+                        )
+                        break
+                    avail_bal = self.client.get_trade_currency_balance_usd()
+                    if avail_bal < self.config.position_size_usd:
+                        logger.warning(
+                            f"insufficient balance for buy: ${avail_bal:.2f} < ${self.config.position_size_usd:.2f}"
+                        )
+                        break
+                except Exception as exc:
+                    logger.warning(f"pre-buy balance check failed: {exc}")
 
             quantity = self.config.position_size_usd / r["price"]
             logger.info(
@@ -141,10 +177,16 @@ class Trader:
                 f"-> buying ${self.config.position_size_usd:.2f}"
             )
 
+            buy_ok = True
             if not self.config.dry_run:
-                self.client.buy(r["mint"], self.config.position_size_usd, r["price"], self.config.slippage_bps)
+                try:
+                    self.client.buy(r["mint"], self.config.position_size_usd, r["price"], self.config.slippage_bps)
+                except Exception as exc:
+                    logger.error(f"buy failed for {r['symbol']} ({r['mint'][:8]}): {exc}")
+                    buy_ok = False
 
-            self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
+            if buy_ok:
+                self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
 
         if self.market_state is not None:
             top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)
@@ -153,6 +195,13 @@ class Trader:
         return len(mints)
 
     def manage_open_positions(self) -> None:
+        max_age_seconds = self.config.max_position_hold_minutes * 60
+        stale_closed = self.store.close_stale_positions(max_age_seconds)
+        if stale_closed > 0:
+            logger.info(
+                f"auto-closed {stale_closed} stale position(s) exceeding {self.config.max_position_hold_minutes}m hold limit"
+            )
+
         open_positions = self.store.get_open_positions()
         if not open_positions:
             return
@@ -160,14 +209,23 @@ class Trader:
         mints = [p["token_mint"] for p in open_positions]
         prices = self._fetch_all_prices(mints)
 
+        now = time.time()
         for position in open_positions:
             mint = position["token_mint"]
             entry_price = position["entry_price"]
             quantity = position["quantity"]
+            pos_age = now - position["entry_time"]
 
             current_price = prices.get(mint)
             if current_price is None:
-                logger.warning(f"failed to fetch price for {position['token_symbol']} ({mint[:8]})")
+                # If price is unavailable and position has been open for > 30 minutes, mark dead_token
+                if pos_age > 1800:
+                    logger.warning(
+                        f"closing dead position for {position['token_symbol']} ({mint[:8]}): price unavailable after {int(pos_age/60)}m"
+                    )
+                    self.store.close_position(position["id"], 0.0, "dead_token")
+                else:
+                    logger.warning(f"failed to fetch price for {position['token_symbol']} ({mint[:8]})")
                 continue
 
             exit_reason = None
@@ -184,10 +242,16 @@ class Trader:
                 f"entry={entry_price} exit={current_price}"
             )
 
+            sell_ok = True
             if not self.config.dry_run:
-                self.client.sell(mint, quantity, TOKEN_DECIMALS, self.config.slippage_bps)
+                try:
+                    self.client.sell(mint, quantity, TOKEN_DECIMALS, self.config.slippage_bps)
+                except Exception as exc:
+                    logger.error(f"sell failed for {position['token_symbol']} ({mint[:8]}): {exc}")
+                    sell_ok = False
 
-            self.store.close_position(position["id"], current_price, exit_reason)
+            if sell_ok:
+                self.store.close_position(position["id"], current_price, exit_reason)
 
     def run_cycle(self) -> None:
         self.manage_open_positions()

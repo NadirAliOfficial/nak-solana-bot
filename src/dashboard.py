@@ -1,4 +1,5 @@
 import datetime as dt
+import html
 import hmac
 
 from flask import Flask, g, jsonify, render_template_string, request, Response
@@ -17,13 +18,15 @@ def _short_mint(mint: str) -> str:
 
 
 def _render_token_cell(symbol: str, mint: str) -> str:
-    badge = symbol[:1] if symbol else "?"
+    safe_symbol = html.escape(symbol or "?")
+    badge = safe_symbol[:1]
     short = _short_mint(mint)
+    safe_mint = html.escape(mint)
     return (
         f'<span class="sym">'
-        f'<span class="coin-badge">{badge}</span>{symbol}'
+        f'<span class="coin-badge">{badge}</span>{safe_symbol}'
         f'<span class="tick">{short}</span>'
-        f'<button type="button" class="copy-btn" data-mint="{mint}" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address">'
+        f'<button type="button" class="copy-btn" data-mint="{safe_mint}" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address">'
         f'<span class="icon">content_copy</span>'
         f'</button>'
         f'</span>'
@@ -425,12 +428,27 @@ def _todays_pnl(closed_positions):
     return sum((p["pnl_usd"] or 0) for p in todays), len(todays)
 
 
-def _render_stats(open_positions, closed_positions, balance, sol_balance, position_size_usd) -> str:
-    total_pnl = sum((p["pnl_usd"] or 0) for p in closed_positions)
-    wins = sum(1 for p in closed_positions if (p["pnl_usd"] or 0) > 0)
-    win_rate = (wins / len(closed_positions) * 100) if closed_positions else 0.0
+def _render_stats(
+    open_positions, closed_positions, balance, sol_balance, position_size_usd, closed_stats=None, today_stats=None
+) -> str:
+    if closed_stats is not None:
+        total_pnl = closed_stats.get("total_pnl", 0.0)
+        total_closed = closed_stats.get("total_count", 0)
+        wins = closed_stats.get("wins", 0)
+        win_rate = (wins / total_closed * 100) if total_closed else 0.0
+    else:
+        total_pnl = sum((p["pnl_usd"] or 0) for p in closed_positions)
+        total_closed = len(closed_positions)
+        wins = sum(1 for p in closed_positions if (p["pnl_usd"] or 0) > 0)
+        win_rate = (wins / total_closed * 100) if total_closed else 0.0
+
+    if today_stats is not None:
+        today_pnl = today_stats.get("today_pnl", 0.0)
+        today_count = today_stats.get("today_count", 0)
+    else:
+        today_pnl, today_count = _todays_pnl(closed_positions)
+
     open_exposure = sum(p["usd_size"] for p in open_positions)
-    today_pnl, today_count = _todays_pnl(closed_positions)
 
     pnl_cls = "green" if total_pnl >= 0 else "red"
     today_cls = "green" if today_pnl >= 0 else "red"
@@ -480,8 +498,8 @@ def _render_stats(open_positions, closed_positions, balance, sol_balance, positi
       </div>
       <div class="stat">
         <div class="label"><span class="icon">history</span>Closed trades</div>
-        <div class="value">{len(closed_positions)}</div>
-        <div class="foot">{wins} wins &middot; {len(closed_positions) - wins} losses</div>
+        <div class="value">{total_closed}</div>
+        <div class="foot">{wins} wins &middot; {total_closed - wins} losses</div>
       </div>
     </div>
     """
@@ -689,10 +707,13 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
         lookup = {}
         if client is None or not open_positions:
             return lookup
-        try:
-            lookup = client.get_prices_usd([p["token_mint"] for p in open_positions])
-        except Exception:
-            pass
+        mints = [p["token_mint"] for p in open_positions]
+        for i in range(0, len(mints), 100):
+            batch = mints[i : i + 100]
+            try:
+                lookup.update(client.get_prices_usd(batch))
+            except Exception:
+                pass
         return lookup
 
     def _get_balances():
@@ -711,15 +732,27 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
     def _fragments():
         open_positions = store.get_open_positions()
         closed_positions = store.get_closed_positions()
+        closed_stats = store.get_closed_stats() if hasattr(store, "get_closed_stats") else None
+        start_of_day = dt.datetime.combine(dt.date.today(), dt.time.min).timestamp()
+        today_stats = store.get_todays_stats(start_of_day) if hasattr(store, "get_todays_stats") else None
+        equity_data = store.get_equity_curve() if hasattr(store, "get_equity_curve") else closed_positions
         prices = _price_lookup(open_positions)
         balance, sol_balance = _get_balances()
         snapshot = market_state.snapshot() if market_state is not None else {}
         return {
-            "stats_html": _render_stats(open_positions, closed_positions, balance, sol_balance, config.position_size_usd),
+            "stats_html": _render_stats(
+                open_positions,
+                closed_positions,
+                balance,
+                sol_balance,
+                config.position_size_usd,
+                closed_stats,
+                today_stats,
+            ),
             "top_movers_html": _render_top_movers(snapshot, config.pump_threshold_pct),
             "open_table_html": _render_open_table(open_positions, prices),
             "closed_table_html": _render_closed_table(closed_positions),
-            "equity_svg": _render_equity_svg(closed_positions),
+            "equity_svg": _render_equity_svg(equity_data),
             "open_positions": open_positions,
             "closed_positions": closed_positions,
             "tokens_watched": snapshot.get("tokens_watched", 0),

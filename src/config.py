@@ -29,6 +29,9 @@ class Config:
     stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_PCT", "3")))
 
     poll_interval_seconds: int = field(default_factory=lambda: int(os.getenv("POLL_INTERVAL_SECONDS", "60")))
+    rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
+    max_position_hold_minutes: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOLD_MINUTES", "120")))
+    max_open_positions: int = field(default_factory=lambda: int(os.getenv("MAX_OPEN_POSITIONS", "10")))
     scan_concurrency: int = field(default_factory=lambda: int(os.getenv("SCAN_CONCURRENCY", "8")))
     scan_rate_limit_per_second: float = field(
         default_factory=lambda: float(os.getenv("SCAN_RATE_LIMIT_PER_SECOND", "5"))

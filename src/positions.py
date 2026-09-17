@@ -32,8 +32,10 @@ class PositionStore:
         conn.close()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
         return conn
 
     def has_open_position(self, token_mint: str) -> bool:
@@ -41,6 +43,17 @@ class PositionStore:
             conn = self._connect()
             row = conn.execute(
                 "SELECT 1 FROM positions WHERE token_mint = ? AND status = 'open'", (token_mint,)
+            ).fetchone()
+            conn.close()
+            return row is not None
+
+    def has_recent_position(self, token_mint: str, cooldown_seconds: int) -> bool:
+        with self._lock:
+            conn = self._connect()
+            cutoff = int(time.time()) - cooldown_seconds
+            row = conn.execute(
+                "SELECT 1 FROM positions WHERE token_mint = ? AND (status = 'open' OR exit_time >= ?)",
+                (token_mint, cutoff),
             ).fetchone()
             conn.close()
             return row is not None
@@ -98,3 +111,67 @@ class PositionStore:
             row = conn.execute("SELECT * FROM positions WHERE id = ?", (position_id,)).fetchone()
             conn.close()
             return row
+
+    def close_stale_positions(self, max_age_seconds: int) -> int:
+        with self._lock:
+            conn = self._connect()
+            cutoff = int(time.time()) - max_age_seconds
+            rows = conn.execute(
+                "SELECT id, entry_price, quantity FROM positions WHERE status = 'open' AND entry_time <= ?",
+                (cutoff,),
+            ).fetchall()
+            now = int(time.time())
+            for row in rows:
+                pnl_usd = (0.0 - row["entry_price"]) * row["quantity"]
+                pnl_pct = -100.0
+                conn.execute(
+                    "UPDATE positions SET status = 'closed', exit_price = 0.0, exit_time = ?, "
+                    "exit_reason = 'stale_timeout', pnl_usd = ?, pnl_pct = ? WHERE id = ?",
+                    (now, pnl_usd, pnl_pct, row["id"]),
+                )
+            conn.commit()
+            conn.close()
+            return len(rows)
+
+    def get_closed_stats(self) -> dict:
+        with self._lock:
+            conn = self._connect()
+            row = conn.execute(
+                "SELECT COUNT(*) as total_count, "
+                "COALESCE(SUM(pnl_usd), 0.0) as total_pnl, "
+                "COALESCE(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END), 0) as wins "
+                "FROM positions WHERE status = 'closed'"
+            ).fetchone()
+            conn.close()
+            return {
+                "total_count": row["total_count"],
+                "total_pnl": row["total_pnl"],
+                "wins": row["wins"],
+            }
+
+    def get_todays_stats(self, start_of_day_ts: float) -> dict:
+        with self._lock:
+            conn = self._connect()
+            row = conn.execute(
+                "SELECT COUNT(*) as today_count, "
+                "COALESCE(SUM(pnl_usd), 0.0) as today_pnl "
+                "FROM positions WHERE status = 'closed' AND exit_time >= ?",
+                (int(start_of_day_ts),),
+            ).fetchone()
+            conn.close()
+            return {
+                "today_count": row["today_count"],
+                "today_pnl": row["today_pnl"],
+            }
+
+    def get_equity_curve(self, limit: int = 500) -> list:
+        with self._lock:
+            conn = self._connect()
+            rows = conn.execute(
+                "SELECT pnl_usd, exit_time FROM ("
+                "  SELECT pnl_usd, exit_time FROM positions WHERE status = 'closed' ORDER BY exit_time DESC LIMIT ?"
+                ") ORDER BY exit_time ASC",
+                (limit,),
+            ).fetchall()
+            conn.close()
+            return [{"pnl_usd": r["pnl_usd"] or 0.0, "exit_time": r["exit_time"]} for r in rows]
