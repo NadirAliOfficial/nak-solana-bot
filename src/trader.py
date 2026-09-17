@@ -155,6 +155,9 @@ class Trader:
             total_realized_pnl = closed_stats.get("total_pnl", 0.0)
             available_funds_usd = max(0.0, available_funds_usd + total_realized_pnl)
 
+        # Sort so the highest momentum movers are evaluated and bought first
+        results.sort(key=lambda x: x["pct_change"], reverse=True)
+
         for r in results:
             if not r["is_pump"]:
                 continue
