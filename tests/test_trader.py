@@ -188,8 +188,15 @@ class FakeTriggerClient:
         self.placed.append((token_mint, quantity, tp_price_usd, sl_price_usd))
         return order_id
 
-    def set_status(self, order_id, state, filled_price_usd=None):
-        self._status[order_id] = {"id": order_id, "state": state, "filledPriceUsd": filled_price_usd}
+    def set_status(self, order_id, order_state, tp_state="open", sl_state="open", tp_price_usd=None, sl_price_usd=None):
+        self._status[order_id] = {
+            "id": order_id,
+            "orderState": order_state,
+            "tpState": tp_state,
+            "slState": sl_state,
+            "tpPriceUsd": tp_price_usd,
+            "slPriceUsd": sl_price_usd,
+        }
 
     def get_order_status(self, order_id):
         return self._status.get(order_id)
@@ -229,7 +236,7 @@ def test_manage_open_positions_closes_on_filled_trigger_order(config):
     store.set_trigger_order_id(pid, "order-MintABC")
     client = FakeClient({"MintABC": 1.08})
     trigger_client = FakeTriggerClient()
-    trigger_client.set_status("order-MintABC", "filled", filled_price_usd=1.08)
+    trigger_client.set_status("order-MintABC", "open", tp_state="filled", tp_price_usd=1.08)
     config.dry_run = False
     trader = Trader(client, config, store, trigger_client=trigger_client)
 

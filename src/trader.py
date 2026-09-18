@@ -312,12 +312,14 @@ class Trader:
             logger.warning(f"failed to check trigger order {trigger_order_id}: {exc}")
             return False
 
-        state = str((order or {}).get("state", "")).lower()
-        if state in ("filled", "completed", "executed"):
-            exit_price = (
-                order.get("filledPriceUsd") or order.get("executionPriceUsd") or position["entry_price"]
-            )
-            exit_reason = "take_profit" if exit_price >= position["entry_price"] else "stop_loss"
+        order_state = str((order or {}).get("orderState", "")).lower()
+        tp_state = str((order or {}).get("tpState", "")).lower()
+        sl_state = str((order or {}).get("slState", "")).lower()
+
+        if tp_state == "filled" or sl_state == "filled":
+            exit_reason = "take_profit" if tp_state == "filled" else "stop_loss"
+            exit_price = order.get("tpPriceUsd") if exit_reason == "take_profit" else order.get("slPriceUsd")
+            exit_price = exit_price or position["entry_price"]
             pct = ((exit_price - position["entry_price"]) / position["entry_price"]) * 100
             logger.info(
                 f"JUPITER TRIGGER {exit_reason.upper()} {position['token_symbol']} ({position['token_mint'][:8]}): "
@@ -326,7 +328,7 @@ class Trader:
             self.store.close_position(position["id"], exit_price, exit_reason)
             return True
 
-        if state in ("cancelled", "expired", "failed"):
+        if order_state in ("cancelled", "expired", "failed", "closed"):
             return False  # nothing left protecting this position - fall back to manual polling
 
         if pos_age > max_hold_seconds:

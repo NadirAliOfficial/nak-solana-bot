@@ -61,11 +61,18 @@ class JupiterTriggerClient:
             self._authenticate()
         return {"Authorization": f"Bearer {self._jwt}"}
 
-    def _sign_and_send(self, tx_b64: str) -> str:
+    def _partial_sign(self, tx_b64: str) -> str:
+        """Vault deposit/withdraw transactions require multiple signers (us, the vault,
+        and a relayer) - Jupiter's backend adds the other signatures and submits the
+        transaction itself. We only fill in our own signature slot (index 0) and hand
+        the still-partially-signed transaction back; we never submit it to RPC ourselves."""
         raw_tx = VersionedTransaction.from_bytes(base64.b64decode(tx_b64))
-        signed_tx = VersionedTransaction(raw_tx.message, [self.keypair])
-        result = self.rpc.send_raw_transaction(bytes(signed_tx))
-        return str(result.value)
+        message_bytes = bytes(raw_tx.message)
+        our_signature = self.keypair.sign_message(message_bytes)
+        signatures = list(raw_tx.signatures)
+        signatures[0] = our_signature
+        partial_tx = VersionedTransaction.populate(raw_tx.message, signatures)
+        return base64.b64encode(bytes(partial_tx)).decode()
 
     def place_oco_exit_order(
         self,
@@ -99,7 +106,7 @@ class JupiterTriggerClient:
         craft_resp.raise_for_status()
         craft = craft_resp.json()
         deposit_request_id = craft["requestId"]
-        deposit_signed_tx = self._sign_and_send(craft["transaction"])
+        deposit_signed_tx = self._partial_sign(craft["transaction"])
 
         order_resp = self._http.post(
             f"{TRIGGER_BASE}/orders/price",
@@ -137,19 +144,22 @@ class JupiterTriggerClient:
 
     def cancel_order(self, order_id: str) -> bool:
         """Two-step cancel: initiate, then confirm with a signed withdrawal transaction
-        that returns the deposited tokens to the wallet."""
+        that returns the deposited tokens to the wallet. The withdraw transaction must be
+        signed and submitted for confirmation immediately - it carries a short-lived
+        blockhash and fails server-side if too much time passes between cancel and confirm."""
         headers = self._auth_headers()
         cancel_resp = self._http.post(f"{TRIGGER_BASE}/orders/price/cancel/{order_id}", headers=headers)
         cancel_resp.raise_for_status()
-        withdraw_tx_b64 = cancel_resp.json().get("transaction")
+        cancel_data = cancel_resp.json()
+        withdraw_tx_b64 = cancel_data.get("transaction")
         if not withdraw_tx_b64:
             return True  # nothing to sign, already cancelled
 
-        signed_withdraw_tx = self._sign_and_send(withdraw_tx_b64)
+        signed_withdraw_tx = self._partial_sign(withdraw_tx_b64)
         confirm_resp = self._http.post(
             f"{TRIGGER_BASE}/orders/price/confirm-cancel/{order_id}",
             headers=headers,
-            json={"signedTx": signed_withdraw_tx},
+            json={"signedTransaction": signed_withdraw_tx, "cancelRequestId": cancel_data["requestId"]},
         )
         confirm_resp.raise_for_status()
         logger.info(f"jupiter trigger order cancelled: id={order_id}")
