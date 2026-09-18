@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 
 DEXSCREENER_TOKENS_API = "https://api.dexscreener.com/latest/dex/tokens"
 RUGCHECK_TOKENS_API = "https://api.rugcheck.xyz/v1/tokens"
+JUPITER_PRICE_API = "https://api.jup.ag/price/v3"
 CACHE_TTL_SECONDS = 60  # a token's momentum can re-trigger multiple scan cycles; avoid re-checking every time
 CONVICTION_MIN_MULTIPLIER = 0.7
 CONVICTION_MAX_MULTIPLIER = 1.3
@@ -64,6 +65,29 @@ class SafetyChecker:
         self._cache = {}  # mint -> (checked_at, passed, reason)
 
     def get_liquidity_usd(self, mint: str) -> Optional[float]:
+        """Jupiter's price API is tried first - it returns pool liquidity for any mint
+        it can price, including brand-new pump.fun/launchpad tokens seconds after
+        launch, well before DexScreener has indexed a pair for them. DexScreener is the
+        fallback for anything Jupiter doesn't have priced."""
+        jupiter_liquidity = self._get_jupiter_liquidity_usd(mint)
+        if jupiter_liquidity is not None:
+            return jupiter_liquidity
+        return self._get_dexscreener_liquidity_usd(mint)
+
+    def _get_jupiter_liquidity_usd(self, mint: str) -> Optional[float]:
+        try:
+            resp = self._http.get(JUPITER_PRICE_API, params={"ids": mint})
+            if resp.status_code != 200:
+                return None
+            entry = resp.json().get(mint)
+            if not entry or entry.get("liquidity") is None:
+                return None
+            return float(entry["liquidity"])
+        except Exception as exc:
+            logger.debug(f"jupiter liquidity lookup failed for {mint[:8]}: {exc}")
+            return None
+
+    def _get_dexscreener_liquidity_usd(self, mint: str) -> Optional[float]:
         try:
             resp = self._http.get(f"{DEXSCREENER_TOKENS_API}/{mint}")
             if resp.status_code != 200:
@@ -73,7 +97,7 @@ class SafetyChecker:
                 return None
             return max((p.get("liquidity", {}) or {}).get("usd") or 0.0 for p in pairs)
         except Exception as exc:
-            logger.debug(f"liquidity lookup failed for {mint[:8]}: {exc}")
+            logger.debug(f"dexscreener liquidity lookup failed for {mint[:8]}: {exc}")
             return None
 
     def get_rugcheck_data(self, mint: str) -> Optional[dict]:

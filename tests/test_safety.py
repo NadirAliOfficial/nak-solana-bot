@@ -229,7 +229,47 @@ def test_conviction_multiplier_incorporates_rugcheck_metrics():
     assert strong_setup > marginal_setup
 
 
-def test_get_liquidity_usd_returns_max_across_pairs():
+def test_get_liquidity_usd_prefers_jupiter_when_available():
+    checker = _make_checker()
+    checker._get_jupiter_liquidity_usd = MagicMock(return_value=3491.0)
+    checker._get_dexscreener_liquidity_usd = MagicMock(return_value=9000.0)
+
+    assert checker.get_liquidity_usd("SomeMint") == 3491.0
+    checker._get_dexscreener_liquidity_usd.assert_not_called()
+
+
+def test_get_liquidity_usd_falls_back_to_dexscreener_when_jupiter_missing():
+    checker = _make_checker()
+    checker._get_jupiter_liquidity_usd = MagicMock(return_value=None)
+    checker._get_dexscreener_liquidity_usd = MagicMock(return_value=9000.0)
+
+    assert checker.get_liquidity_usd("SomeMint") == 9000.0
+
+
+def test_get_jupiter_liquidity_usd_parses_response():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(
+        200, {"SomeMint": {"liquidity": 3491.19, "usdPrice": 0.0000133}}
+    )
+
+    assert checker._get_jupiter_liquidity_usd("SomeMint") == 3491.19
+
+
+def test_get_jupiter_liquidity_usd_returns_none_when_mint_not_priced():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(200, {})
+
+    assert checker._get_jupiter_liquidity_usd("SomeMint") is None
+
+
+def test_get_jupiter_liquidity_usd_returns_none_on_http_error():
+    checker = _make_checker()
+    checker._http.get.side_effect = Exception("network down")
+
+    assert checker._get_jupiter_liquidity_usd("SomeMint") is None
+
+
+def test_get_dexscreener_liquidity_usd_returns_max_across_pairs():
     checker = _make_checker()
     checker._http.get.return_value = _http_response(
         200,
@@ -241,7 +281,7 @@ def test_get_liquidity_usd_returns_max_across_pairs():
         },
     )
 
-    assert checker.get_liquidity_usd("SomeMint") == 9000
+    assert checker._get_dexscreener_liquidity_usd("SomeMint") == 9000
 
 
 def test_get_liquidity_usd_returns_none_when_no_pairs():
