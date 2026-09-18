@@ -144,12 +144,12 @@ class Trader:
                 return True, f"daily loss limit hit (today P&L ${today_stats['today_pnl']:.2f})"
 
         if self.config.losing_streak_count > 0:
-            streak = self.store.get_consecutive_stop_losses()
+            streak = self.store.get_consecutive_losses()
             if streak >= self.config.losing_streak_count:
-                last_loss_time = self.store.get_last_stop_loss_exit_time()
+                last_loss_time = self.store.get_last_loss_exit_time()
                 cooldown_seconds = self.config.losing_streak_cooldown_minutes * 60
                 if last_loss_time and time.time() - last_loss_time < cooldown_seconds:
-                    return True, f"{streak} consecutive stop-losses - cooling down"
+                    return True, f"{streak} consecutive losses - cooling down"
 
         return False, ""
 

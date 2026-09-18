@@ -628,13 +628,21 @@ def _render_closed_table(closed_positions) -> str:
     if not closed_positions:
         return '<div class="empty">No closed trades yet.</div>'
 
+    exit_reason_labels = {
+        "take_profit": "Take profit",
+        "stop_loss": "Stop loss",
+        "trailing_stop": "Trailing stop",
+        "stale_timeout": "Stale timeout",
+        "dead_token": "Dead token",
+    }
+
     rows = []
     for p in closed_positions:
-        tag = (
-            '<span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span>'
-            if p["exit_reason"] == "take_profit"
-            else '<span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span>'
-        )
+        pnl_is_positive = (p["pnl_usd"] or 0) >= 0
+        label = exit_reason_labels.get(p["exit_reason"], p["exit_reason"] or "Unknown")
+        cls = "tag-tp" if pnl_is_positive else "tag-sl"
+        icon = "trending_up" if pnl_is_positive else "trending_down"
+        tag = f'<span class="tag {cls}"><span class="icon">{icon}</span>{label}</span>'
         cls_usd = "pos" if (p["pnl_usd"] or 0) >= 0 else "neg"
         cls_pct = "pos" if (p["pnl_pct"] or 0) >= 0 else "neg"
         exit_time = dt.datetime.fromtimestamp(p["exit_time"]).strftime("%H:%M:%S") if p["exit_time"] else "—"

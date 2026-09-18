@@ -182,28 +182,35 @@ class PositionStore:
                 "today_pnl": row["today_pnl"],
             }
 
-    def get_consecutive_stop_losses(self) -> int:
-        """Counts stop-losses backward from the most recent closed position, stopping
-        at the first non-stop-loss exit. Used for the losing-streak cooldown."""
+    def get_consecutive_losses(self) -> int:
+        """Counts losing closes (by realized P&L, not exit_reason label) backward from
+        the most recent closed position, stopping at the first non-losing exit. Used
+        for the losing-streak cooldown.
+
+        Counts by P&L rather than exit_reason == 'stop_loss' specifically: with partial
+        exit enabled, a losing round-trip's trailing leg always closes with exit_reason
+        'trailing_stop', never 'stop_loss' - counting by label alone would mean the
+        streak counter resets to 0 on every trailing leg regardless of how many losing
+        trades happened in a row."""
         with self._lock:
             conn = self._connect()
             rows = conn.execute(
-                "SELECT exit_reason FROM positions WHERE status = 'closed' ORDER BY exit_time DESC, id DESC LIMIT 20"
+                "SELECT pnl_usd FROM positions WHERE status = 'closed' ORDER BY exit_time DESC, id DESC LIMIT 20"
             ).fetchall()
             conn.close()
         count = 0
         for row in rows:
-            if row["exit_reason"] == "stop_loss":
+            if (row["pnl_usd"] or 0) < 0:
                 count += 1
             else:
                 break
         return count
 
-    def get_last_stop_loss_exit_time(self) -> Optional[int]:
+    def get_last_loss_exit_time(self) -> Optional[int]:
         with self._lock:
             conn = self._connect()
             row = conn.execute(
-                "SELECT exit_time FROM positions WHERE status = 'closed' AND exit_reason = 'stop_loss' "
+                "SELECT exit_time FROM positions WHERE status = 'closed' AND pnl_usd < 0 "
                 "ORDER BY exit_time DESC LIMIT 1"
             ).fetchone()
             conn.close()

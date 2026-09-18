@@ -57,17 +57,17 @@ def test_update_peak_price(store):
     assert position["peak_price"] == 1.35
 
 
-def test_get_consecutive_stop_losses_counts_from_most_recent(store):
+def test_get_consecutive_losses_counts_from_most_recent(store):
     for i in range(3):
         pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0)
         store.close_position(pid, 0.97, "stop_loss")
     pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
     store.close_position(pid, 1.08, "take_profit")
 
-    assert store.get_consecutive_stop_losses() == 0  # most recent close was a win
+    assert store.get_consecutive_losses() == 0  # most recent close was a win
 
 
-def test_get_consecutive_stop_losses_stops_at_first_non_loss(store):
+def test_get_consecutive_losses_stops_at_first_non_loss(store):
     # opened (and closed) before the losing streak, so it sorts first on the id tiebreaker
     # even if all closes land within the same wall-clock second
     pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
@@ -76,21 +76,38 @@ def test_get_consecutive_stop_losses_stops_at_first_non_loss(store):
         pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0)
         store.close_position(pid, 0.97, "stop_loss")
 
-    assert store.get_consecutive_stop_losses() == 3
+    assert store.get_consecutive_losses() == 3
 
 
-def test_get_last_stop_loss_exit_time_returns_none_when_no_losses(store):
+def test_get_consecutive_losses_counts_losing_trailing_stops_too(store):
+    # a losing trailing-leg exit is labeled "trailing_stop", never "stop_loss" - the
+    # streak counter must still count it as a loss by P&L, not skip it by label
+    for i in range(3):
+        pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0, exit_style="trailing")
+        store.close_position(pid, 0.97, "trailing_stop")
+
+    assert store.get_consecutive_losses() == 3
+
+
+def test_get_consecutive_losses_ignores_profitable_trailing_stop(store):
+    pid = store.open_position("MintABC", "SYM", 1.0, 100.0, 100.0, exit_style="trailing")
+    store.close_position(pid, 1.05, "trailing_stop")  # exited above entry - a captured gain
+
+    assert store.get_consecutive_losses() == 0
+
+
+def test_get_last_loss_exit_time_returns_none_when_no_losses(store):
     pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
     store.close_position(pid, 1.08, "take_profit")
 
-    assert store.get_last_stop_loss_exit_time() is None
+    assert store.get_last_loss_exit_time() is None
 
 
-def test_get_last_stop_loss_exit_time_returns_most_recent(store):
+def test_get_last_loss_exit_time_returns_most_recent(store):
     pid = store.open_position("MintLoss", "SYM", 1.0, 100.0, 100.0)
     store.close_position(pid, 0.97, "stop_loss")
 
-    exit_time = store.get_last_stop_loss_exit_time()
+    exit_time = store.get_last_loss_exit_time()
     assert exit_time is not None
 
 

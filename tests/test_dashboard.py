@@ -53,6 +53,33 @@ def test_index_renders_open_and_closed_positions(store):
     assert b"Take profit" in resp.data
 
 
+def test_closed_table_labels_trailing_stop_distinctly_from_stop_loss(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    store.close_position(pid, 0.97, "trailing_stop")
+    pid2 = store.open_position("MintDEF", "DEF", 1.0, 100.0, 100.0)
+    store.close_position(pid2, 0.97, "stop_loss")
+
+    app = create_app(store, client=None, config=Config())
+    resp = app.test_client().get("/")
+    html = resp.data.decode("utf-8")
+
+    assert "Trailing stop" in html
+    assert "Stop loss" in html
+
+
+def test_closed_table_colors_profitable_trailing_stop_as_positive(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    store.close_position(pid, 1.05, "trailing_stop")  # exited above entry - a captured gain, not a loss
+
+    app = create_app(store, client=None, config=Config())
+    resp = app.test_client().get("/")
+    html = resp.data.decode("utf-8")
+
+    assert "Trailing stop" in html
+    assert '<span class="tag tag-tp">' in html
+    assert '<span class="tag tag-sl">' not in html
+
+
 def test_api_render_returns_fragments(store):
     store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
     app = create_app(store, client=None, config=Config())
