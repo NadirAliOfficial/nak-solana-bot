@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -62,6 +63,37 @@ def test_scan_and_buy_opens_position_on_pump(config):
 
     assert store.has_open_position("MintABC") is True
     assert client.buys == []  # dry run: no live swap sent
+
+
+def test_scan_and_buy_skips_buy_when_safety_filter_fails(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+    trader.safety = MagicMock()
+    trader.safety.check.return_value = (False, "liquidity_unknown")
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is False
+    trader.safety.check.assert_called_once_with("MintABC", config)
+
+
+def test_scan_and_buy_buys_when_safety_filter_passes(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+    trader.safety = MagicMock()
+    trader.safety.check.return_value = (True, "")
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is True
 
 
 def test_scan_and_buy_skips_existing_position(config):

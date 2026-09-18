@@ -29,6 +29,15 @@ class Config:
     stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_PCT", "3")))
     use_jupiter_trigger_orders: bool = field(default_factory=lambda: _bool("USE_JUPITER_TRIGGER_ORDERS", True))
 
+    enable_safety_filters: bool = field(default_factory=lambda: _bool("ENABLE_SAFETY_FILTERS", True))
+    min_liquidity_usd: float = field(default_factory=lambda: float(os.getenv("MIN_LIQUIDITY_USD", "5000")))
+    require_mint_authority_revoked: bool = field(
+        default_factory=lambda: _bool("REQUIRE_MINT_AUTHORITY_REVOKED", True)
+    )
+    require_freeze_authority_revoked: bool = field(
+        default_factory=lambda: _bool("REQUIRE_FREEZE_AUTHORITY_REVOKED", True)
+    )
+
     rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
     max_position_hold_minutes: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOLD_MINUTES", "120")))
     max_open_positions: int = field(default_factory=lambda: int(os.getenv("MAX_OPEN_POSITIONS", "10")))

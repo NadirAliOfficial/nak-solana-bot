@@ -5,9 +5,10 @@ token up 15% in the last 15 minutes, and exits at +8% take profit or -3% stop
 loss. Same trigger and exit logic as the Coinbase momentum bot, applied to
 Solana instead of a centralized exchange. Includes a live dashboard.
 
-No safety filters (liquidity, holder count, mint/freeze authority, honeypot
-detection) are applied by design, per current scope. New token launches carry
-a high rug pull and honeypot risk; see the warnings below before running live.
+Pre-buy safety filters (liquidity floor, mint/freeze authority revocation) are
+applied by default to cut the most common rug/honeypot patterns; see
+"Safety filters" below. They reduce but do not eliminate rug pull and
+honeypot risk — see the warnings below before running live.
 
 ## Strategy
 
@@ -19,6 +20,29 @@ a high rug pull and honeypot risk; see the warnings below before running live.
 - New tokens only become eligible once the bot has tracked them for a full
   `PUMP_WINDOW_MINUTES` — there is no historical candle data for a token that
   launched seconds ago
+
+## Safety filters
+
+Checked once per pump candidate, right before a buy (not against the whole
+watchlist, so it stays cheap):
+
+- **Liquidity floor** (`MIN_LIQUIDITY_USD`, default $5000): rejects the buy if
+  DexScreener reports less pool liquidity than this, or reports none at all.
+  Reduces slippage and exit risk on thin pools.
+- **Mint authority revoked** (`REQUIRE_MINT_AUTHORITY_REVOKED`, default true):
+  rejects the buy if the token creator can still mint new supply. An active
+  mint authority means the creator can inflate supply and dump on holders at
+  will.
+- **Freeze authority revoked** (`REQUIRE_FREEZE_AUTHORITY_REVOKED`, default
+  true): rejects the buy if the token creator can still freeze token
+  accounts. This is the classic honeypot switch — an active freeze authority
+  means the creator can block your sell outright, and the stop loss can't
+  save you from that.
+
+Set `ENABLE_SAFETY_FILTERS=false` to disable all of the above and restore the
+old momentum-only behavior. These filters do not detect a creator dumping
+their own token allocation, since that requires no special authority — they
+only remove trades with an on-chain guarantee of no exit.
 
 ## How it watches the market
 

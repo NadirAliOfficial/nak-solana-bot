@@ -8,6 +8,7 @@ from .config import Config
 from .logger import get_logger
 from .positions import PositionStore
 from .risk import should_stop_loss, should_take_profit
+from .safety import SafetyChecker
 from .scanner import detect_pump
 
 logger = get_logger(__name__)
@@ -34,6 +35,7 @@ class Trader:
         self.price_history = {}  # mint -> [(ts, price), ...]
         self._history_lock = threading.Lock()
         self._watchlist_lock = threading.Lock()
+        self.safety = SafetyChecker(client.rpc) if client is not None and hasattr(client, "rpc") else None
 
     def add_discovered_token(self, token) -> None:
         """Called from the PumpPortal listener thread as new tokens/migrations stream in.
@@ -183,6 +185,12 @@ class Trader:
                         f"skipping buy for {r['symbol']}: insufficient available funds (${free_capacity_usd:.2f} free < ${self.config.position_size_usd:.2f} size | tradable: ${available_funds_usd:.2f}, exposed: ${currently_exposed_usd:.2f})"
                     )
                     break
+
+            if self.safety is not None:
+                passed, reason = self.safety.check(r["mint"], self.config)
+                if not passed:
+                    logger.info(f"skipping buy for {r['symbol']} ({r['mint'][:8]}): safety filter failed ({reason})")
+                    continue
 
             quantity = self.config.position_size_usd / r["price"]
             logger.info(
