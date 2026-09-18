@@ -40,6 +40,8 @@ def config(tmp_path):
     cfg.take_profit_pct = 8.0
     cfg.stop_loss_pct = 3.0
     cfg.position_size_usd = 100.0
+    cfg.min_token_age_seconds = 0
+    cfg.enable_volume_confirmation = False
     return cfg
 
 
@@ -70,7 +72,7 @@ def test_scan_and_buy_skips_buy_when_safety_filter_fails(config):
     client = FakeClient({"MintABC": 1.0})
     trader = Trader(client, config, store)
     trader.safety = MagicMock()
-    trader.safety.check.return_value = (False, "liquidity_unknown")
+    trader.safety.check.return_value = (False, "liquidity_unknown", {})
     trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
     client.prices["MintABC"] = 1.20
@@ -86,7 +88,7 @@ def test_scan_and_buy_buys_when_safety_filter_passes(config):
     client = FakeClient({"MintABC": 1.0})
     trader = Trader(client, config, store)
     trader.safety = MagicMock()
-    trader.safety.check.return_value = (True, "")
+    trader.safety.check.return_value = (True, "", {})
     trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
     client.prices["MintABC"] = 1.20
@@ -94,6 +96,231 @@ def test_scan_and_buy_buys_when_safety_filter_passes(config):
     trader.scan_and_buy()
 
     assert store.has_open_position("MintABC") is True
+
+
+def test_scan_and_buy_skips_token_younger_than_min_age(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.min_token_age_seconds = 300
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))  # first_seen = now
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is False
+
+
+def test_scan_and_buy_allows_token_older_than_min_age(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.min_token_age_seconds = 60
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    trader.watchlist["MintABC"]["first_seen"] = time.time() - 120  # older than the min-age threshold
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is True
+
+
+def test_scan_and_buy_skips_when_volume_confirmation_fails(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_volume_confirmation = True
+    trader = Trader(client, config, store)
+    trader.entry_quality = MagicMock()
+    trader.entry_quality.check.return_value = (False, "volume_unknown")
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is False
+
+
+def test_scan_and_buy_buys_when_volume_confirmation_passes(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_volume_confirmation = True
+    trader = Trader(client, config, store)
+    trader.entry_quality = MagicMock()
+    trader.entry_quality.check.return_value = (True, "")
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is True
+
+
+def test_dedupe_copycats_keeps_highest_liquidity(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+    trader.safety = MagicMock()
+    trader.safety.get_liquidity_usd.side_effect = lambda mint: {"MintA": 5000.0, "MintB": 50000.0}[mint]
+
+    candidates = [
+        {"mint": "MintA", "symbol": "GTA6", "pct_change": 20.0, "is_pump": True, "price": 1.0},
+        {"mint": "MintB", "symbol": "GTA6", "pct_change": 18.0, "is_pump": True, "price": 1.0},
+    ]
+
+    result = trader._dedupe_copycats(candidates)
+
+    assert [r["mint"] for r in result] == ["MintB"]
+
+
+def test_dedupe_copycats_leaves_unrelated_symbols_alone(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    candidates = [
+        {"mint": "MintA", "symbol": "DOGE", "pct_change": 20.0, "is_pump": True, "price": 1.0},
+        {"mint": "MintB", "symbol": "PEPE", "pct_change": 18.0, "is_pump": True, "price": 1.0},
+    ]
+
+    result = trader._dedupe_copycats(candidates)
+
+    assert len(result) == 2
+
+
+def test_scan_and_buy_only_buys_best_liquidity_copycat(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintA": 1.0, "MintB": 1.0})
+    trader = Trader(client, config, store)
+    trader.safety = MagicMock()
+    trader.safety.check.return_value = (True, "", {})
+    trader.safety.get_liquidity_usd.side_effect = lambda mint: {"MintA": 5000.0, "MintB": 50000.0}[mint]
+    trader.add_discovered_token(Token(mint="MintA", symbol="GTA6"))
+    trader.add_discovered_token(Token(mint="MintB", symbol="GTA6"))
+    _prime_history(trader, "MintA", [1.0] * 15)
+    _prime_history(trader, "MintB", [1.0] * 15)
+    client.prices["MintA"] = 1.20
+    client.prices["MintB"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintA") is False
+    assert store.has_open_position("MintB") is True
+
+
+def test_scan_and_buy_sizes_position_by_conviction(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_conviction_sizing = True
+    config.enable_partial_exit = False
+    trader = Trader(client, config, store)
+    trader.safety = MagicMock()
+    trader.safety.check.return_value = (True, "", {"liquidity_usd": 50000.0})
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    position = store.get_open_positions()[0]
+    assert position["usd_size"] > config.position_size_usd  # comfortable liquidity margin sizes up
+
+
+def test_scan_and_buy_splits_into_oco_and_trailing_legs_when_partial_exit_enabled(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_partial_exit = True
+    config.partial_exit_pct = 50
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    positions = store.get_open_positions()
+    assert len(positions) == 2
+    assert sorted(p["exit_style"] for p in positions) == ["oco", "trailing"]
+    assert sum(p["usd_size"] for p in positions) == pytest.approx(config.position_size_usd)
+
+
+def test_scan_and_buy_keeps_single_position_when_partial_exit_disabled(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_partial_exit = False
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    positions = store.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0]["exit_style"] == "oco"
+
+
+def test_manage_open_positions_closes_on_trailing_stop(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    config.trailing_stop_bps = 500
+    client = FakeClient({"MintABC": 1.5})
+    trader = Trader(client, config, store)
+    trader.manage_open_positions()  # observes the peak at 1.5
+
+    client.prices["MintABC"] = 1.5 * 0.94  # 6% down from peak, past the 5% trailing distance
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is False
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "trailing_stop"
+
+
+def test_manage_open_positions_updates_peak_price_as_price_rises(config):
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    client = FakeClient({"MintABC": 1.3})
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    position = store.get_position(pid)
+    assert position["peak_price"] == pytest.approx(1.3)
+
+
+def test_manage_open_positions_holds_trailing_position_within_trailing_distance(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    config.trailing_stop_bps = 500
+    client = FakeClient({"MintABC": 1.5})
+    trader = Trader(client, config, store)
+    trader.manage_open_positions()  # sets peak to 1.5
+
+    client.prices["MintABC"] = 1.47  # within the 5% trailing distance from peak
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is True
+
+
+def test_manage_open_positions_closes_on_filled_trailing_trigger_order(config):
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    store.set_trigger_order_id(pid, "order-MintABC")
+    client = FakeClient({"MintABC": 1.45})
+    trigger_client = FakeTriggerClient()
+    trigger_client.set_status("order-MintABC", "filled")
+    config.dry_run = False
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is False
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "trailing_stop"
+    assert closed[0]["exit_price"] == pytest.approx(1.45)
 
 
 def test_scan_and_buy_skips_all_buys_when_daily_loss_limit_hit(config):
@@ -160,8 +387,8 @@ def test_scan_and_buy_skips_existing_position(config):
     trader.scan_and_buy()
     second_count = len(store.get_open_positions())
 
-    assert first_count == 1
-    assert second_count == 1
+    assert first_count > 0
+    assert second_count == first_count  # second scan didn't add any more positions for the same mint
 
 
 def test_add_discovered_token_ignores_duplicates(config):

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from src.safety import SafetyChecker
+from src.safety import SafetyChecker, conviction_multiplier
 
 
 def _config(**overrides):
@@ -33,7 +33,7 @@ def _make_checker():
 
 def test_check_disabled_always_passes():
     checker = _make_checker()
-    passed, reason = checker.check("SomeMint", _config(enable_safety_filters=False))
+    passed, reason, metrics = checker.check("SomeMint", _config(enable_safety_filters=False))
     assert passed is True
     assert reason == ""
 
@@ -42,7 +42,7 @@ def test_check_fails_on_low_liquidity():
     checker = _make_checker()
     checker.get_liquidity_usd = MagicMock(return_value=1000.0)
 
-    passed, reason = checker.check("SomeMint", _config())
+    passed, reason, metrics = checker.check("SomeMint", _config())
 
     assert passed is False
     assert "liquidity" in reason
@@ -52,7 +52,7 @@ def test_check_fails_on_unknown_liquidity():
     checker = _make_checker()
     checker.get_liquidity_usd = MagicMock(return_value=None)
 
-    passed, reason = checker.check("SomeMint", _config())
+    passed, reason, metrics = checker.check("SomeMint", _config())
 
     assert passed is False
     assert reason == "liquidity_unknown"
@@ -63,7 +63,7 @@ def test_check_fails_on_active_mint_authority():
     checker.get_liquidity_usd = MagicMock(return_value=10000.0)
     checker.get_mint_authorities = MagicMock(return_value=("SomeAuthority", None))
 
-    passed, reason = checker.check("SomeMint", _config())
+    passed, reason, metrics = checker.check("SomeMint", _config())
 
     assert passed is False
     assert reason == "mint_authority_not_revoked"
@@ -74,7 +74,7 @@ def test_check_fails_on_active_freeze_authority():
     checker.get_liquidity_usd = MagicMock(return_value=10000.0)
     checker.get_mint_authorities = MagicMock(return_value=(None, "SomeAuthority"))
 
-    passed, reason = checker.check("SomeMint", _config())
+    passed, reason, metrics = checker.check("SomeMint", _config())
 
     assert passed is False
     assert reason == "freeze_authority_not_revoked"
@@ -85,10 +85,11 @@ def test_check_passes_when_all_conditions_met():
     checker.get_liquidity_usd = MagicMock(return_value=10000.0)
     checker.get_mint_authorities = MagicMock(return_value=(None, None))
 
-    passed, reason = checker.check("SomeMint", _config())
+    passed, reason, metrics = checker.check("SomeMint", _config())
 
     assert passed is True
     assert reason == ""
+    assert metrics == {"liquidity_usd": 10000.0}
 
 
 def test_check_result_is_cached_within_ttl():
@@ -108,7 +109,7 @@ def test_check_skips_authority_lookup_when_not_required():
     checker.get_liquidity_usd = MagicMock(return_value=10000.0)
     checker.get_mint_authorities = MagicMock()
 
-    passed, reason = checker.check(
+    passed, reason, metrics = checker.check(
         "SomeMint",
         _config(require_mint_authority_revoked=False, require_freeze_authority_revoked=False),
     )
@@ -123,7 +124,7 @@ def test_check_fails_on_low_lp_locked_pct():
     checker.get_mint_authorities = MagicMock(return_value=(None, None))
     checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 10.0, "top_holder_pct": 5.0})
 
-    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+    passed, reason, metrics = checker.check("SomeMint", _config(enable_rugcheck=True))
 
     assert passed is False
     assert "lp_locked" in reason
@@ -135,7 +136,7 @@ def test_check_fails_on_high_top_holder_pct():
     checker.get_mint_authorities = MagicMock(return_value=(None, None))
     checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 90.0, "top_holder_pct": 45.0})
 
-    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+    passed, reason, metrics = checker.check("SomeMint", _config(enable_rugcheck=True))
 
     assert passed is False
     assert "top_holder" in reason
@@ -147,7 +148,7 @@ def test_check_fails_when_rugcheck_lookup_fails():
     checker.get_mint_authorities = MagicMock(return_value=(None, None))
     checker.get_rugcheck_data = MagicMock(return_value=None)
 
-    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+    passed, reason, metrics = checker.check("SomeMint", _config(enable_rugcheck=True))
 
     assert passed is False
     assert reason == "rugcheck_unknown"
@@ -159,10 +160,12 @@ def test_check_passes_rugcheck_when_thresholds_met():
     checker.get_mint_authorities = MagicMock(return_value=(None, None))
     checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 90.0, "top_holder_pct": 10.0})
 
-    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+    passed, reason, metrics = checker.check("SomeMint", _config(enable_rugcheck=True))
 
     assert passed is True
     assert reason == ""
+    assert metrics["lp_locked_pct"] == 90.0
+    assert metrics["top_holder_pct"] == 10.0
 
 
 def test_get_rugcheck_data_picks_highest_liquidity_market():
@@ -195,6 +198,35 @@ def test_get_rugcheck_data_returns_none_on_non_200():
     checker._http.get.return_value = _http_response(404, {})
 
     assert checker.get_rugcheck_data("SomeMint") is None
+
+
+def test_conviction_multiplier_returns_1_when_no_metrics():
+    assert conviction_multiplier({}, _config()) == 1.0
+
+
+def test_conviction_multiplier_scales_up_for_strong_liquidity_margin():
+    cfg = _config(enable_rugcheck=False)
+    at_floor = conviction_multiplier({"liquidity_usd": 5000.0}, cfg)
+    well_above_floor = conviction_multiplier({"liquidity_usd": 50000.0}, cfg)
+
+    assert well_above_floor > at_floor
+
+
+def test_conviction_multiplier_is_clamped_between_bounds():
+    cfg = _config(enable_rugcheck=False)
+    low = conviction_multiplier({"liquidity_usd": 1.0}, cfg)
+    high = conviction_multiplier({"liquidity_usd": 10_000_000.0}, cfg)
+
+    assert 0.7 <= low <= 1.3
+    assert 0.7 <= high <= 1.3
+
+
+def test_conviction_multiplier_incorporates_rugcheck_metrics():
+    cfg = _config(enable_rugcheck=True, min_liquidity_usd=0)
+    strong_setup = conviction_multiplier({"lp_locked_pct": 100.0, "top_holder_pct": 5.0}, cfg)
+    marginal_setup = conviction_multiplier({"lp_locked_pct": 50.0, "top_holder_pct": 29.0}, cfg)
+
+    assert strong_setup > marginal_setup
 
 
 def test_get_liquidity_usd_returns_max_across_pairs():

@@ -1,3 +1,5 @@
+import difflib
+import re
 from typing import List, Tuple
 
 
@@ -29,3 +31,21 @@ def detect_pump(price_history: List[Tuple[float, float]], window_minutes: int, t
 
     pct_change = ((latest_price - baseline_price) / baseline_price) * 100
     return pct_change >= threshold_pct, pct_change
+
+
+def _normalize_symbol(symbol: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (symbol or "").lower())
+
+
+def is_copycat_symbol(a: str, b: str, threshold: float) -> bool:
+    """True if two token symbols are similar enough to likely be copycats of the same
+    meme trend (e.g. "GTA6" vs "GTA6INU"), after stripping case/punctuation. When a
+    trend blows up, dozens of near-identical launches appear within minutes; only one
+    of them is worth the risk.
+    """
+    na, nb = _normalize_symbol(a), _normalize_symbol(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= threshold

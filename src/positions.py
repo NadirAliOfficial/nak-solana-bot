@@ -18,12 +18,16 @@ CREATE TABLE IF NOT EXISTS positions (
     exit_reason TEXT,
     pnl_usd REAL,
     pnl_pct REAL,
-    trigger_order_id TEXT
+    trigger_order_id TEXT,
+    exit_style TEXT NOT NULL DEFAULT 'oco',
+    peak_price REAL
 )
 """
 
 MIGRATIONS = [
     "ALTER TABLE positions ADD COLUMN trigger_order_id TEXT",
+    "ALTER TABLE positions ADD COLUMN exit_style TEXT NOT NULL DEFAULT 'oco'",
+    "ALTER TABLE positions ADD COLUMN peak_price REAL",
 ]
 
 
@@ -69,19 +73,33 @@ class PositionStore:
             return row is not None
 
     def open_position(
-        self, token_mint: str, token_symbol: str, entry_price: float, quantity: float, usd_size: float
+        self,
+        token_mint: str,
+        token_symbol: str,
+        entry_price: float,
+        quantity: float,
+        usd_size: float,
+        exit_style: str = "oco",
     ) -> int:
+        peak_price = entry_price if exit_style == "trailing" else None
         with self._lock:
             conn = self._connect()
             cur = conn.execute(
-                "INSERT INTO positions (token_mint, token_symbol, entry_price, quantity, usd_size, entry_time, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'open')",
-                (token_mint, token_symbol, entry_price, quantity, usd_size, int(time.time())),
+                "INSERT INTO positions (token_mint, token_symbol, entry_price, quantity, usd_size, entry_time, "
+                "status, exit_style, peak_price) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+                (token_mint, token_symbol, entry_price, quantity, usd_size, int(time.time()), exit_style, peak_price),
             )
             conn.commit()
             position_id = cur.lastrowid
             conn.close()
             return position_id
+
+    def update_peak_price(self, position_id: int, peak_price: float) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute("UPDATE positions SET peak_price = ? WHERE id = ?", (peak_price, position_id))
+            conn.commit()
+            conn.close()
 
     def set_trigger_order_id(self, position_id: int, trigger_order_id: str) -> None:
         with self._lock:
@@ -111,7 +129,9 @@ class PositionStore:
     def get_open_positions(self) -> List[sqlite3.Row]:
         with self._lock:
             conn = self._connect()
-            rows = conn.execute("SELECT * FROM positions WHERE status = 'open' ORDER BY entry_time DESC").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM positions WHERE status = 'open' ORDER BY entry_time DESC, id ASC"
+            ).fetchall()
             conn.close()
             return rows
 

@@ -6,11 +6,12 @@ import time
 from typing import Optional, Tuple
 
 from .config import Config
+from .entry_quality import EntryQualityChecker
 from .logger import get_logger
 from .positions import PositionStore
-from .risk import should_stop_loss, should_take_profit
-from .safety import SafetyChecker
-from .scanner import detect_pump
+from .risk import should_stop_loss, should_take_profit, should_trailing_stop
+from .safety import SafetyChecker, conviction_multiplier
+from .scanner import detect_pump, is_copycat_symbol
 
 logger = get_logger(__name__)
 
@@ -42,6 +43,7 @@ class Trader:
         self._history_lock = threading.Lock()
         self._watchlist_lock = threading.Lock()
         self.safety = SafetyChecker(client.rpc) if client is not None and hasattr(client, "rpc") else None
+        self.entry_quality = EntryQualityChecker()
 
     def add_discovered_token(self, token) -> None:
         """Called from the PumpPortal listener thread as new tokens/migrations stream in.
@@ -151,12 +153,49 @@ class Trader:
 
         return False, ""
 
+    def _dedupe_copycats(self, candidates: list) -> list:
+        """When a meme trend blows up, dozens of similarly-named copycat tokens can
+        pump within the same cycle - only the one with the most liquidity is worth
+        the risk. Groups candidates by fuzzy symbol match and keeps the highest-
+        liquidity one per group, dropping the rest."""
+        dropped = set()
+        for i in range(len(candidates)):
+            if candidates[i]["mint"] in dropped:
+                continue
+            group = [candidates[i]]
+            for j in range(i + 1, len(candidates)):
+                if candidates[j]["mint"] in dropped:
+                    continue
+                if is_copycat_symbol(
+                    candidates[i]["symbol"], candidates[j]["symbol"], self.config.copycat_similarity_threshold
+                ):
+                    group.append(candidates[j])
+
+            if len(group) < 2:
+                continue
+
+            for r in group:
+                if "_liquidity_usd" not in r:
+                    r["_liquidity_usd"] = (self.safety.get_liquidity_usd(r["mint"]) if self.safety else 0.0) or 0.0
+
+            best = max(group, key=lambda r: r["_liquidity_usd"])
+            for r in group:
+                if r is not best:
+                    dropped.add(r["mint"])
+                    logger.info(
+                        f"skipping buy for {r['symbol']} ({r['mint'][:8]}): copycat of "
+                        f"{best['symbol']} ({best['mint'][:8]}) with less liquidity"
+                    )
+
+        return [r for r in candidates if r["mint"] not in dropped]
+
     def scan_and_buy(self) -> int:
         start = time.time()
 
         with self._watchlist_lock:
             mints = list(self.watchlist.keys())
             symbols = {m: v["symbol"] for m, v in self.watchlist.items()}
+            first_seen_map = {m: v["first_seen"] for m, v in self.watchlist.items()}
 
         prices = self._fetch_all_prices(mints)
 
@@ -190,8 +229,13 @@ class Trader:
         if buys_blocked:
             logger.info(f"no new buys this cycle: {buys_blocked_reason}")
 
-        for r in ([] if buys_blocked else results):
-            if not r["is_pump"]:
+        buy_candidates = [] if buys_blocked else [r for r in results if r["is_pump"]]
+        if self.config.enable_copycat_filter:
+            buy_candidates = self._dedupe_copycats(buy_candidates)
+
+        for r in buy_candidates:
+            token_age_seconds = time.time() - first_seen_map.get(r["mint"], 0)
+            if token_age_seconds < self.config.min_token_age_seconds:
                 continue
 
             cooldown_seconds = self.config.rebuy_cooldown_minutes * 60
@@ -205,59 +249,91 @@ class Trader:
                 )
                 break
 
-            # STRICT BALANCE CONSTRAINT: Even in dry run, you cannot buy more than available real balance
-            if available_funds_usd is not None:
-                free_capacity_usd = max(0.0, available_funds_usd - currently_exposed_usd)
-                if free_capacity_usd < self.config.position_size_usd:
-                    logger.info(
-                        f"skipping buy for {r['symbol']}: insufficient available funds (${free_capacity_usd:.2f} free < ${self.config.position_size_usd:.2f} size | tradable: ${available_funds_usd:.2f}, exposed: ${currently_exposed_usd:.2f})"
-                    )
-                    break
-
+            metrics = {}
             if self.safety is not None:
-                passed, reason = self.safety.check(r["mint"], self.config)
+                passed, reason, metrics = self.safety.check(r["mint"], self.config)
                 if not passed:
                     logger.info(f"skipping buy for {r['symbol']} ({r['mint'][:8]}): safety filter failed ({reason})")
                     continue
 
-            quantity = self.config.position_size_usd / r["price"]
+            passed, reason = self.entry_quality.check(r["mint"], self.config)
+            if not passed:
+                logger.info(f"skipping buy for {r['symbol']} ({r['mint'][:8]}): entry quality failed ({reason})")
+                continue
+
+            actual_size_usd = self.config.position_size_usd
+            if self.config.enable_conviction_sizing:
+                actual_size_usd *= conviction_multiplier(metrics, self.config)
+
+            # STRICT BALANCE CONSTRAINT: Even in dry run, you cannot buy more than available real balance
+            if available_funds_usd is not None:
+                free_capacity_usd = max(0.0, available_funds_usd - currently_exposed_usd)
+                if free_capacity_usd < actual_size_usd:
+                    logger.info(
+                        f"skipping buy for {r['symbol']}: insufficient available funds (${free_capacity_usd:.2f} free < ${actual_size_usd:.2f} size | tradable: ${available_funds_usd:.2f}, exposed: ${currently_exposed_usd:.2f})"
+                    )
+                    break
+
+            quantity = actual_size_usd / r["price"]
             logger.info(
                 f"PUMP detected {r['symbol']} ({r['mint'][:8]}) +{r['pct_change']:.2f}% "
-                f"-> buying ${self.config.position_size_usd:.2f}"
+                f"-> buying ${actual_size_usd:.2f}"
             )
 
             buy_ok = True
             if not self.config.dry_run:
                 try:
-                    self.client.buy(r["mint"], self.config.position_size_usd, r["price"], self.config.slippage_bps)
+                    self.client.buy(r["mint"], actual_size_usd, r["price"], self.config.slippage_bps)
                 except Exception as exc:
                     logger.error(f"buy failed for {r['symbol']} ({r['mint'][:8]}): {exc}")
                     buy_ok = False
 
             if buy_ok:
-                pos_id = self.store.open_position(r["mint"], r["symbol"], r["price"], quantity, self.config.position_size_usd)
-                currently_exposed_usd += self.config.position_size_usd
-                open_positions.append({"id": pos_id, "token_mint": r["mint"], "usd_size": self.config.position_size_usd})
+                partial_pct = self.config.partial_exit_pct / 100.0
+                if self.config.enable_partial_exit and 0 < partial_pct < 1:
+                    quantity_a, usd_a = quantity * partial_pct, actual_size_usd * partial_pct
+                    legs = [(quantity_a, usd_a, "oco"), (quantity - quantity_a, actual_size_usd - usd_a, "trailing")]
+                else:
+                    legs = [(quantity, actual_size_usd, "oco")]
 
-                if not self.config.dry_run and self.trigger_client is not None:
-                    trade_mint = getattr(self.client, "trade_mint", None)
-                    if trade_mint is not None:
-                        try:
-                            order_id = self.trigger_client.place_oco_exit_order(
-                                token_mint=r["mint"],
-                                trade_currency_mint=trade_mint,
-                                quantity=quantity,
-                                token_decimals=TOKEN_DECIMALS,
-                                tp_price_usd=r["price"] * (1 + self.config.take_profit_pct / 100),
-                                sl_price_usd=r["price"] * (1 - self.config.stop_loss_pct / 100),
-                                slippage_bps=self.config.slippage_bps,
-                            )
-                            if order_id:
-                                self.store.set_trigger_order_id(pos_id, order_id)
-                        except Exception as exc:
-                            # Falls back to our own polling-based TP/SL for this position -
-                            # never leaves it unprotected, just loses the faster on-chain exit.
-                            logger.warning(f"failed to place jupiter trigger order for {r['symbol']} ({r['mint'][:8]}): {exc}")
+                currently_exposed_usd += actual_size_usd
+                for leg_quantity, leg_usd, exit_style in legs:
+                    pos_id = self.store.open_position(
+                        r["mint"], r["symbol"], r["price"], leg_quantity, leg_usd, exit_style=exit_style
+                    )
+                    open_positions.append({"id": pos_id, "token_mint": r["mint"], "usd_size": leg_usd})
+
+                    if not self.config.dry_run and self.trigger_client is not None:
+                        trade_mint = getattr(self.client, "trade_mint", None)
+                        if trade_mint is not None:
+                            try:
+                                if exit_style == "trailing":
+                                    order_id = self.trigger_client.place_trailing_stop_order(
+                                        token_mint=r["mint"],
+                                        trade_currency_mint=trade_mint,
+                                        quantity=leg_quantity,
+                                        token_decimals=TOKEN_DECIMALS,
+                                        trailing_bps=self.config.trailing_stop_bps,
+                                        slippage_bps=self.config.slippage_bps,
+                                    )
+                                else:
+                                    order_id = self.trigger_client.place_oco_exit_order(
+                                        token_mint=r["mint"],
+                                        trade_currency_mint=trade_mint,
+                                        quantity=leg_quantity,
+                                        token_decimals=TOKEN_DECIMALS,
+                                        tp_price_usd=r["price"] * (1 + self.config.take_profit_pct / 100),
+                                        sl_price_usd=r["price"] * (1 - self.config.stop_loss_pct / 100),
+                                        slippage_bps=self.config.slippage_bps,
+                                    )
+                                if order_id:
+                                    self.store.set_trigger_order_id(pos_id, order_id)
+                            except Exception as exc:
+                                # Falls back to our own polling-based exit logic for this position -
+                                # never leaves it unprotected, just loses the faster on-chain exit.
+                                logger.warning(
+                                    f"failed to place jupiter {exit_style} order for {r['symbol']} ({r['mint'][:8]}): {exc}"
+                                )
 
         if self.market_state is not None:
             top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)
@@ -284,9 +360,13 @@ class Trader:
             quantity = position["quantity"]
             pos_age = now - position["entry_time"]
             trigger_order_id = position["trigger_order_id"] if "trigger_order_id" in position.keys() else None
+            exit_style = position["exit_style"] if "exit_style" in position.keys() else "oco"
+            current_price = prices.get(mint)
 
             if trigger_order_id and not self.config.dry_run and self.trigger_client is not None:
-                closed_by_trigger = self._check_trigger_order(position, trigger_order_id, pos_age, max_hold_seconds)
+                closed_by_trigger = self._check_trigger_order(
+                    position, trigger_order_id, pos_age, max_hold_seconds, exit_style, current_price
+                )
                 if closed_by_trigger:
                     continue
                 if closed_by_trigger is None:
@@ -294,9 +374,8 @@ class Trader:
                     # infrastructure is watching the price, so skip our own manual check.
                     continue
                 # closed_by_trigger is False: status check failed (network error, unknown
-                # order, etc.) - fall through to our own polling TP/SL as a safety net.
+                # order, etc.) - fall through to our own polling exit logic as a safety net.
 
-            current_price = prices.get(mint)
             if current_price is None:
                 # If price is unavailable and position has been open for > 30 minutes, the
                 # token is presumed dead/illiquid - a real sell would fail anyway, so this is
@@ -309,12 +388,24 @@ class Trader:
                 continue
 
             exit_reason = None
-            if should_take_profit(current_price, entry_price, self.config.take_profit_pct):
-                exit_reason = "take_profit"
-            elif should_stop_loss(current_price, entry_price, self.config.stop_loss_pct):
-                exit_reason = "stop_loss"
-            elif pos_age > max_hold_seconds:
-                exit_reason = "stale_timeout"
+            if exit_style == "trailing":
+                has_peak = "peak_price" in position.keys() and position["peak_price"] is not None
+                peak_price = position["peak_price"] if has_peak else entry_price
+                if current_price > peak_price:
+                    peak_price = current_price
+                    self.store.update_peak_price(position["id"], peak_price)
+
+                if should_trailing_stop(current_price, peak_price, self.config.trailing_stop_bps):
+                    exit_reason = "trailing_stop"
+                elif pos_age > max_hold_seconds:
+                    exit_reason = "stale_timeout"
+            else:
+                if should_take_profit(current_price, entry_price, self.config.take_profit_pct):
+                    exit_reason = "take_profit"
+                elif should_stop_loss(current_price, entry_price, self.config.stop_loss_pct):
+                    exit_reason = "stop_loss"
+                elif pos_age > max_hold_seconds:
+                    exit_reason = "stale_timeout"
 
             if exit_reason is None:
                 continue
@@ -338,10 +429,15 @@ class Trader:
 
         return True
 
-    def _check_trigger_order(self, position, trigger_order_id, pos_age, max_hold_seconds) -> Optional[bool]:
+    def _check_trigger_order(
+        self, position, trigger_order_id, pos_age, max_hold_seconds, exit_style="oco", current_price=None
+    ) -> Optional[bool]:
         """Returns True if the position was closed here (order filled), None if the order
         is still open and not yet stale (nothing to do), or False if the caller should fall
-        back to manual polling (status unknown, or the order went stale and was cancelled)."""
+        back to manual polling (status unknown, or the order went stale and was cancelled).
+
+        OCO orders report separate tpState/slState; single/trailing orders report only
+        orderState (no tp/sl split) - see Jupiter Trigger API docs."""
         try:
             order = self.trigger_client.get_order_status(trigger_order_id)
         except Exception as exc:
@@ -349,13 +445,41 @@ class Trader:
             return False
 
         order_state = str((order or {}).get("orderState", "")).lower()
+
+        if exit_style == "trailing":
+            if order_state == "filled":
+                exit_price = current_price or position["entry_price"]
+                pct = ((exit_price - position["entry_price"]) / position["entry_price"]) * 100
+                logger.info(
+                    f"JUPITER TRAILING_STOP {position['token_symbol']} ({position['token_mint'][:8]}): "
+                    f"{pct:+.2f}% entry={position['entry_price']} exit={exit_price}"
+                )
+                self.store.close_position(position["id"], exit_price, "trailing_stop")
+                return True
+
+            if order_state in ("cancelled", "expired", "failed", "closed"):
+                return False
+
+            if pos_age > max_hold_seconds:
+                logger.info(
+                    f"trailing-stop order for {position['token_symbol']} ({position['token_mint'][:8]}) still open "
+                    f"past max hold time - cancelling to fall back to manual stale-timeout close"
+                )
+                try:
+                    self.trigger_client.cancel_order(trigger_order_id)
+                except Exception as exc:
+                    logger.warning(f"failed to cancel stale trailing-stop order {trigger_order_id}: {exc}")
+                return False
+
+            return None
+
         tp_state = str((order or {}).get("tpState", "")).lower()
         sl_state = str((order or {}).get("slState", "")).lower()
 
         if tp_state == "filled" or sl_state == "filled":
             exit_reason = "take_profit" if tp_state == "filled" else "stop_loss"
             exit_price = order.get("tpPriceUsd") if exit_reason == "take_profit" else order.get("slPriceUsd")
-            exit_price = exit_price or position["entry_price"]
+            exit_price = exit_price or current_price or position["entry_price"]
             pct = ((exit_price - position["entry_price"]) / position["entry_price"]) * 100
             logger.info(
                 f"JUPITER TRIGGER {exit_reason.upper()} {position['token_symbol']} ({position['token_mint'][:8]}): "

@@ -33,6 +33,30 @@ def test_close_position_computes_pnl(store):
     assert closed[0]["pnl_pct"] == pytest.approx(8.0)
 
 
+def test_open_position_sets_peak_price_for_trailing_exit_style(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    position = store.get_position(pid)
+
+    assert position["exit_style"] == "trailing"
+    assert position["peak_price"] == 1.0
+
+
+def test_open_position_defaults_to_oco_with_no_peak_price(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    position = store.get_position(pid)
+
+    assert position["exit_style"] == "oco"
+    assert position["peak_price"] is None
+
+
+def test_update_peak_price(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    store.update_peak_price(pid, 1.35)
+
+    position = store.get_position(pid)
+    assert position["peak_price"] == 1.35
+
+
 def test_get_consecutive_stop_losses_counts_from_most_recent(store):
     for i in range(3):
         pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0)

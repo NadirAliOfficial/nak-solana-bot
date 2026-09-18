@@ -68,6 +68,48 @@ buys regardless of which token is pumping:
 
 Set either count/limit to `0` to disable it.
 
+## Entry quality and sizing
+
+Beyond the pass/fail safety filters, these change *which* pumps get bought and
+how much goes into each one:
+
+- **Minimum token age** (`MIN_TOKEN_AGE_SECONDS`, default 150): skips a token
+  even if it's already pumping until it's been tracked for at least this
+  long. The highest rug density is the first couple minutes after launch —
+  this lets it prove it survives a little before buying in.
+- **Volume confirmation** (`ENABLE_VOLUME_CONFIRMATION`, default true): a
+  price spike with flat volume is often one whale moving a thin order book
+  alone, not real buying interest. Requires 5-minute volume (DexScreener) to
+  clear `MIN_RECENT_VOLUME_USD` (default $2000) *and* be at least
+  `VOLUME_SURGE_MULTIPLIER`x (default 1.5) the token's own hourly 5-minute
+  average rate — a genuine acceleration, not ambient baseline trading.
+- **Copycat filter** (`ENABLE_COPYCAT_FILTER`, default true): when a meme
+  trend blows up, dozens of similarly-named copycat tokens can pump in the
+  same cycle. Groups candidates by fuzzy symbol match
+  (`COPYCAT_SIMILARITY_THRESHOLD`, default 0.82) and buys only the one with
+  the most liquidity — the rest are a coin flip on which one sticks.
+- **Conviction sizing** (`ENABLE_CONVICTION_SIZING`, default true): sizes a
+  position up to 1.3x `POSITION_SIZE_USD` for a setup that clears the safety
+  thresholds comfortably, and down to 0.7x for one that barely squeaks by,
+  based on how much liquidity/LP-lock/holder-concentration margin it has
+  over the configured minimums.
+
+## Exits
+
+- **Partial exit + trailing stop** (`ENABLE_PARTIAL_EXIT`, default true):
+  instead of exiting the whole position at a fixed take-profit, sells
+  `PARTIAL_EXIT_PCT` (default 50%) at the normal `TAKE_PROFIT_PCT`/
+  `STOP_LOSS_PCT`, and lets the rest ride with a trailing stop
+  (`TRAILING_STOP_BPS`, default 500 = 5% below the running peak) instead of
+  capping it at the same fixed target as every other trade. A token that
+  runs to +60% no longer exits at the same +8% as one that barely ticks up.
+  The trailing leg uses Jupiter Trigger's native `single` order type with
+  `trailingBps` when live; the polling fallback tracks its own peak price
+  per position (`peak_price` in the DB) for the same behavior if the
+  on-chain order can't be placed.
+- Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
+  (single OCO order per position, full take-profit/stop-loss).
+
 ## How it watches the market
 
 Unlike Coinbase, Solana tokens have no ready-made candle API, especially for
@@ -130,9 +172,10 @@ pytest
 
 ## Risk warnings
 
-- **No safety filtering.** The bot buys purely on price momentum. It does not
-  check liquidity, holder concentration, mint/freeze authority, or simulate a
-  sell before buying.
+- **Filters reduce, not eliminate, risk.** The safety/entry-quality filters
+  above catch the most common rug/honeypot patterns but do not simulate a
+  sell before buying, and can't stop a creator from dumping their own token
+  allocation (that requires no special authority to do).
 - **Honeypots.** Some tokens block selling entirely once you've bought in —
   the stop loss cannot force an exit if the token's contract won't let you
   sell. This bot has no way to detect that in advance under current scope.

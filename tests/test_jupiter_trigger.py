@@ -66,6 +66,42 @@ def test_place_oco_exit_order_returns_order_id(mock_vtx):
     assert order_id == "order-1"
 
 
+@patch("src.jupiter_trigger.VersionedTransaction")
+def test_place_trailing_stop_order_returns_order_id(mock_vtx):
+    client = _make_client()
+    raw_tx = MagicMock(message=b"msg-bytes", signatures=["", "", ""])
+    mock_vtx.from_bytes.return_value = raw_tx
+    populated = MagicMock()
+    populated.__bytes__ = MagicMock(return_value=b"signed-bytes")
+    mock_vtx.populate.return_value = populated
+
+    vault_resp = MagicMock()
+    vault_resp.status_code = 200
+    client._http.get.return_value = vault_resp
+    client._http.post.side_effect = [
+        _resp({"challenge": "abc123"}),
+        _resp({"token": "jwt-token"}),
+        _resp({"requestId": "req-1", "transaction": "dGVzdA=="}),
+        _resp({"id": "order-1", "txSignature": "sig", "depositConfirmed": True}),
+    ]
+
+    order_id = client.place_trailing_stop_order(
+        token_mint="MintABC",
+        trade_currency_mint="USDC",
+        quantity=100.0,
+        token_decimals=6,
+        trailing_bps=500,
+        slippage_bps=300,
+    )
+
+    assert order_id == "order-1"
+    order_call = client._http.post.call_args_list[3]
+    assert order_call.kwargs["json"]["orderType"] == "single"
+    assert order_call.kwargs["json"]["trailingBps"] == 500
+    assert order_call.kwargs["json"]["triggerCondition"] == "below"
+    assert "tpPriceUsd" not in order_call.kwargs["json"]
+
+
 def test_register_vault_calls_endpoint_once():
     client = _make_client()
     resp = MagicMock()

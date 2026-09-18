@@ -47,6 +47,25 @@ class Config:
         default_factory=lambda: int(os.getenv("LOSING_STREAK_COOLDOWN_MINUTES", "20"))
     )
 
+    min_token_age_seconds: int = field(default_factory=lambda: int(os.getenv("MIN_TOKEN_AGE_SECONDS", "150")))
+
+    enable_volume_confirmation: bool = field(default_factory=lambda: _bool("ENABLE_VOLUME_CONFIRMATION", True))
+    min_recent_volume_usd: float = field(default_factory=lambda: float(os.getenv("MIN_RECENT_VOLUME_USD", "2000")))
+    volume_surge_multiplier: float = field(
+        default_factory=lambda: float(os.getenv("VOLUME_SURGE_MULTIPLIER", "1.5"))
+    )
+
+    enable_copycat_filter: bool = field(default_factory=lambda: _bool("ENABLE_COPYCAT_FILTER", True))
+    copycat_similarity_threshold: float = field(
+        default_factory=lambda: float(os.getenv("COPYCAT_SIMILARITY_THRESHOLD", "0.82"))
+    )
+
+    enable_conviction_sizing: bool = field(default_factory=lambda: _bool("ENABLE_CONVICTION_SIZING", True))
+
+    enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", True))
+    partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "50")))
+    trailing_stop_bps: int = field(default_factory=lambda: int(os.getenv("TRAILING_STOP_BPS", "500")))
+
     rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
     max_position_hold_minutes: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOLD_MINUTES", "120")))
     max_open_positions: int = field(default_factory=lambda: int(os.getenv("MAX_OPEN_POSITIONS", "10")))

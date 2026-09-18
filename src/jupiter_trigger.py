@@ -145,6 +145,66 @@ class JupiterTriggerClient:
         logger.info(f"jupiter trigger OCO order placed for {token_mint[:8]}: id={order['id']}")
         return order["id"]
 
+    def place_trailing_stop_order(
+        self,
+        token_mint: str,
+        trade_currency_mint: str,
+        quantity: float,
+        token_decimals: int,
+        trailing_bps: int,
+        slippage_bps: int,
+        expires_in_seconds: int = 24 * 3600,
+    ) -> Optional[str]:
+        """Places a "single" order type with trailingBps set instead of a fixed
+        triggerPriceUsd - Jupiter tracks the token's running high (highWatermark) and
+        sells once price falls trailing_bps below it, locking in gains as price climbs
+        instead of exiting at a static level. triggerCondition="below" matches a sell
+        order: the trigger fires when price drops through the trailing threshold.
+        """
+        headers = self._auth_headers()
+        self._register_vault(headers)
+        amount_atomic = str(int(quantity * (10 ** token_decimals)))
+
+        craft_resp = self._http.post(
+            f"{TRIGGER_BASE}/deposit/craft",
+            headers=headers,
+            json={
+                "inputMint": token_mint,
+                "outputMint": trade_currency_mint,
+                "userAddress": self._pubkey_str(),
+                "amount": amount_atomic,
+                "orderType": "single",
+                "orderSubType": "single",
+            },
+        )
+        craft_resp.raise_for_status()
+        craft = craft_resp.json()
+        deposit_request_id = craft["requestId"]
+        deposit_signed_tx = self._partial_sign(craft["transaction"])
+
+        order_resp = self._http.post(
+            f"{TRIGGER_BASE}/orders/price",
+            headers=headers,
+            json={
+                "orderType": "single",
+                "depositRequestId": deposit_request_id,
+                "depositSignedTx": deposit_signed_tx,
+                "userPubkey": self._pubkey_str(),
+                "inputMint": token_mint,
+                "inputAmount": amount_atomic,
+                "outputMint": trade_currency_mint,
+                "triggerMint": token_mint,
+                "triggerCondition": "below",
+                "trailingBps": trailing_bps,
+                "slippageBps": slippage_bps,
+                "expiresAt": int((time.time() + expires_in_seconds) * 1000),
+            },
+        )
+        order_resp.raise_for_status()
+        order = order_resp.json()
+        logger.info(f"jupiter trailing-stop order placed for {token_mint[:8]}: id={order['id']} bps={trailing_bps}")
+        return order["id"]
+
     def get_order_status(self, order_id: str) -> Optional[dict]:
         """Returns the order's history entry (state, fill price, etc.) or None if not found."""
         headers = self._auth_headers()

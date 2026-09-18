@@ -11,6 +11,35 @@ logger = get_logger(__name__)
 DEXSCREENER_TOKENS_API = "https://api.dexscreener.com/latest/dex/tokens"
 RUGCHECK_TOKENS_API = "https://api.rugcheck.xyz/v1/tokens"
 CACHE_TTL_SECONDS = 60  # a token's momentum can re-trigger multiple scan cycles; avoid re-checking every time
+CONVICTION_MIN_MULTIPLIER = 0.7
+CONVICTION_MAX_MULTIPLIER = 1.3
+
+
+def conviction_multiplier(metrics: dict, config) -> float:
+    """Blends how comfortably a candidate cleared each safety threshold into a size
+    multiplier - a setup that barely squeaks past the liquidity floor gets sized down,
+    one that clears it well gets sized up. Clamped to +/-30% of the base size so one
+    weak signal can't zero out a position and one strong signal can't overextend.
+    Returns 1.0 (no adjustment) if no metrics are available to score.
+    """
+    scores = []
+
+    if config.min_liquidity_usd > 0 and metrics.get("liquidity_usd") is not None:
+        margin = metrics["liquidity_usd"] / config.min_liquidity_usd
+        scores.append(min(2.0, margin) / 2.0)  # 0.0-1.0, saturates at 2x the floor
+
+    if config.enable_rugcheck:
+        if metrics.get("lp_locked_pct") is not None:
+            scores.append(min(100.0, metrics["lp_locked_pct"]) / 100.0)
+        if metrics.get("top_holder_pct") is not None and config.max_top_holder_pct > 0:
+            headroom = 1.0 - (metrics["top_holder_pct"] / config.max_top_holder_pct)
+            scores.append(max(0.0, min(1.0, headroom)))
+
+    if not scores:
+        return 1.0
+
+    avg = sum(scores) / len(scores)
+    return CONVICTION_MIN_MULTIPLIER + avg * (CONVICTION_MAX_MULTIPLIER - CONVICTION_MIN_MULTIPLIER)
 
 
 class SafetyChecker:
@@ -89,48 +118,56 @@ class SafetyChecker:
         info = resp.value.data.parsed["info"]
         return info.get("mintAuthority"), info.get("freezeAuthority")
 
-    def check(self, mint: str, config) -> Tuple[bool, str]:
-        """Returns (passed, reason). reason is empty on pass, otherwise explains the failure."""
+    def check(self, mint: str, config) -> Tuple[bool, str, dict]:
+        """Returns (passed, reason, metrics). reason is empty on pass, otherwise
+        explains the failure. metrics carries whatever raw values were fetched along
+        the way (liquidity_usd, lp_locked_pct, top_holder_pct) so callers can use them
+        for conviction-based position sizing without a second round of API calls."""
         if not config.enable_safety_filters:
-            return True, ""
+            return True, "", {}
 
         now = time.time()
         cached = self._cache.get(mint)
         if cached and now - cached[0] < CACHE_TTL_SECONDS:
-            return cached[1], cached[2]
+            return cached[1], cached[2], cached[3]
 
         result = self._run_checks(mint, config)
-        self._cache[mint] = (now, result[0], result[1])
+        self._cache[mint] = (now, result[0], result[1], result[2])
         return result
 
-    def _run_checks(self, mint: str, config) -> Tuple[bool, str]:
+    def _run_checks(self, mint: str, config) -> Tuple[bool, str, dict]:
+        metrics = {}
+
         if config.min_liquidity_usd > 0:
             liquidity = self.get_liquidity_usd(mint)
             if liquidity is None:
-                return False, "liquidity_unknown"
+                return False, "liquidity_unknown", metrics
+            metrics["liquidity_usd"] = liquidity
             if liquidity < config.min_liquidity_usd:
-                return False, f"liquidity ${liquidity:.0f} < ${config.min_liquidity_usd:.0f}"
+                return False, f"liquidity ${liquidity:.0f} < ${config.min_liquidity_usd:.0f}", metrics
 
         if config.require_mint_authority_revoked or config.require_freeze_authority_revoked:
             try:
                 mint_authority, freeze_authority = self.get_mint_authorities(mint)
             except Exception as exc:
                 logger.debug(f"authority lookup failed for {mint[:8]}: {exc}")
-                return False, "authority_unknown"
+                return False, "authority_unknown", metrics
 
             if config.require_mint_authority_revoked and mint_authority is not None:
-                return False, "mint_authority_not_revoked"
+                return False, "mint_authority_not_revoked", metrics
 
             if config.require_freeze_authority_revoked and freeze_authority is not None:
-                return False, "freeze_authority_not_revoked"
+                return False, "freeze_authority_not_revoked", metrics
 
         if config.enable_rugcheck:
             rugcheck = self.get_rugcheck_data(mint)
             if rugcheck is None:
-                return False, "rugcheck_unknown"
+                return False, "rugcheck_unknown", metrics
+            metrics["lp_locked_pct"] = rugcheck["lp_locked_pct"]
+            metrics["top_holder_pct"] = rugcheck["top_holder_pct"]
             if rugcheck["lp_locked_pct"] < config.min_lp_locked_pct:
-                return False, f"lp_locked {rugcheck['lp_locked_pct']:.0f}% < {config.min_lp_locked_pct:.0f}%"
+                return False, f"lp_locked {rugcheck['lp_locked_pct']:.0f}% < {config.min_lp_locked_pct:.0f}%", metrics
             if rugcheck["top_holder_pct"] > config.max_top_holder_pct:
-                return False, f"top_holder {rugcheck['top_holder_pct']:.1f}% > {config.max_top_holder_pct:.1f}%"
+                return False, f"top_holder {rugcheck['top_holder_pct']:.1f}% > {config.max_top_holder_pct:.1f}%", metrics
 
-        return True, ""
+        return True, "", metrics

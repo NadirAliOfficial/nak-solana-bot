@@ -14,6 +14,10 @@ def should_stop_loss(current_price: float, entry_price: float, stop_loss_pct: fl
     return current_price <= stop_loss_price(entry_price, stop_loss_pct)
 
 
+def should_trailing_stop(current_price: float, peak_price: float, trailing_bps: int) -> bool:
+    return current_price <= peak_price * (1 - trailing_bps / 10000)
+
+
 def pnl_usd(entry_price: float, exit_price: float, quantity: float) -> float:
     return (exit_price - entry_price) * quantity
 
