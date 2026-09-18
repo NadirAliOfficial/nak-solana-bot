@@ -112,27 +112,6 @@ class PositionStore:
             conn.close()
             return row
 
-    def close_stale_positions(self, max_age_seconds: int) -> int:
-        with self._lock:
-            conn = self._connect()
-            cutoff = int(time.time()) - max_age_seconds
-            rows = conn.execute(
-                "SELECT id, entry_price, quantity FROM positions WHERE status = 'open' AND entry_time <= ?",
-                (cutoff,),
-            ).fetchall()
-            now = int(time.time())
-            for row in rows:
-                pnl_usd = (0.0 - row["entry_price"]) * row["quantity"]
-                pnl_pct = -100.0
-                conn.execute(
-                    "UPDATE positions SET status = 'closed', exit_price = 0.0, exit_time = ?, "
-                    "exit_reason = 'stale_timeout', pnl_usd = ?, pnl_pct = ? WHERE id = ?",
-                    (now, pnl_usd, pnl_pct, row["id"]),
-                )
-            conn.commit()
-            conn.close()
-            return len(rows)
-
     def get_closed_stats(self) -> dict:
         with self._lock:
             conn = self._connect()

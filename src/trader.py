@@ -208,13 +208,6 @@ class Trader:
         return len(mints)
 
     def manage_open_positions(self) -> bool:
-        max_age_seconds = self.config.max_position_hold_minutes * 60
-        stale_closed = self.store.close_stale_positions(max_age_seconds)
-        if stale_closed > 0:
-            logger.info(
-                f"auto-closed {stale_closed} stale position(s) exceeding {self.config.max_position_hold_minutes}m hold limit"
-            )
-
         open_positions = self.store.get_open_positions()
         if not open_positions:
             return False
@@ -226,6 +219,7 @@ class Trader:
             prices = self._fetch_all_prices(mints)
 
         now = time.time()
+        max_hold_seconds = self.config.max_position_hold_minutes * 60
         for position in open_positions:
             mint = position["token_mint"]
             entry_price = position["entry_price"]
@@ -234,7 +228,9 @@ class Trader:
 
             current_price = prices.get(mint)
             if current_price is None:
-                # If price is unavailable and position has been open for > 30 minutes, mark dead_token
+                # If price is unavailable and position has been open for > 30 minutes, the
+                # token is presumed dead/illiquid - a real sell would fail anyway, so this is
+                # the one case marked closed without attempting one.
                 if pos_age > 1800:
                     logger.warning(
                         f"closing dead position for {position['token_symbol']} ({mint[:8]}): price unavailable after {int(pos_age/60)}m"
@@ -247,6 +243,8 @@ class Trader:
                 exit_reason = "take_profit"
             elif should_stop_loss(current_price, entry_price, self.config.stop_loss_pct):
                 exit_reason = "stop_loss"
+            elif pos_age > max_hold_seconds:
+                exit_reason = "stale_timeout"
 
             if exit_reason is None:
                 continue

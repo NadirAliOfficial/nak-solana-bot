@@ -53,19 +53,6 @@ def test_has_recent_position_cooldown(store):
     assert store.has_recent_position("MintCooldown", cooldown_seconds=0) is False
 
 
-def test_close_stale_positions(store):
-    pid = store.open_position("MintOld", "OLD", 1.0, 100.0, 100.0)
-    # Stale threshold 0 seconds means anything created <= now is stale
-    closed_count = store.close_stale_positions(max_age_seconds=0)
-    assert closed_count == 1
-
-    open_pos = store.get_open_positions()
-    assert len(open_pos) == 0
-
-    closed = store.get_closed_positions()
-    assert len(closed) == 1
-    assert closed[0]["exit_reason"] == "stale_timeout"
-    assert closed[0]["exit_price"] == 0.0
 
 
 def test_closed_and_todays_stats(store):

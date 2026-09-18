@@ -253,7 +253,7 @@ class SolanaClient:
         if self.trade_mint == USDC_MINT:
             trade_currency_amount = usd_amount  # USDC is ~$1
         else:
-            trade_mint_price = self.get_prices_usd([self.trade_mint]).get(self.trade_mint)
+            trade_mint_price = self.get_sol_price_usd()
             if not trade_mint_price:
                 raise RuntimeError(f"could not price trade currency {self.trade_mint} for buy sizing")
             trade_currency_amount = usd_amount / trade_mint_price

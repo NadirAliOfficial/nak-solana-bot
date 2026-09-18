@@ -150,6 +150,33 @@ def test_manage_open_positions_closes_on_stop_loss(config):
     assert closed[0]["exit_reason"] == "stop_loss"
 
 
+def test_manage_open_positions_sells_before_closing_stale_position(config):
+    import sqlite3
+
+    store = PositionStore(config.db_path)
+    config.max_position_hold_minutes = 1
+    pid = store.open_position("MintOld", "OLD", 1.0, 100.0, 100.0)
+
+    # Backdate entry_time so the position is older than the 1-minute hold limit,
+    # but keep the price flat so neither take_profit nor stop_loss would trigger.
+    conn = sqlite3.connect(config.db_path)
+    conn.execute("UPDATE positions SET entry_time = ? WHERE id = ?", (int(time.time()) - 120, pid))
+    conn.commit()
+    conn.close()
+
+    client = FakeClient({"MintOld": 1.0})
+    config.dry_run = False  # must confirm a real sell is attempted, not skipped
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert client.sells == [("MintOld", 100.0)]  # a real sell was attempted before closing
+    assert store.has_open_position("MintOld") is False
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "stale_timeout"
+    assert closed[0]["exit_price"] == 1.0  # real current price recorded, not a hardcoded 0.0/-100%
+
+
 def test_manage_open_positions_holds_when_within_range(config):
     store = PositionStore(config.db_path)
     store.open_position("MintSOL", "SOL2", 1.0, 100.0, 100.0)

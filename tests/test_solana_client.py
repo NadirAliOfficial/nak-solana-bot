@@ -3,6 +3,13 @@ from unittest.mock import MagicMock
 from src.solana_client import SOL_MINT, USDC_MINT, SolanaClient
 
 
+def _http_response(status_code=200, json_data=None):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    return resp
+
+
 def _make_client(trade_currency):
     client = SolanaClient.__new__(SolanaClient)
     client.trade_mint = USDC_MINT if trade_currency == "USDC" else SOL_MINT
@@ -40,7 +47,7 @@ def test_buy_sizing_for_usdc_assumes_one_dollar_peg():
 
 def test_buy_sizing_for_sol_converts_through_live_price():
     client = _make_client("SOL")
-    client.get_prices_usd = MagicMock(return_value={SOL_MINT: 97.08})
+    client.get_sol_price_usd = MagicMock(return_value=97.08)
     client.swap = MagicMock(return_value="sig")
 
     client.buy("SomeMint", usd_amount=100.0, price_usd=0.01, slippage_bps=300)
@@ -61,14 +68,65 @@ def test_trade_currency_balance_usd_for_usdc_is_face_value():
 def test_trade_currency_balance_usd_for_sol_converts_through_price():
     client = _make_client("SOL")
     client.get_trade_currency_balance = MagicMock(return_value=3.09)
-    client.get_prices_usd = MagicMock(return_value={SOL_MINT: 97.08})
+    client.get_sol_price_usd = MagicMock(return_value=97.08)
 
     assert client.get_trade_currency_balance_usd() == 3.09 * 97.08
 
 
+def test_get_sol_price_usd_uses_jupiter_when_available():
+    client = _make_client("SOL")
+    client.get_prices_usd = MagicMock(return_value={SOL_MINT: 97.08})
+    client._http = MagicMock()
+
+    assert client.get_sol_price_usd() == 97.08
+    client._http.get.assert_not_called()  # never fell back to Binance/CoinGecko
+
+
+def test_get_sol_price_usd_falls_back_to_binance_when_jupiter_fails():
+    client = _make_client("SOL")
+    client.get_prices_usd = MagicMock(side_effect=Exception("jupiter down"))
+    client._http = MagicMock()
+    client._http.get = MagicMock(return_value=_http_response(200, {"price": "101.5"}))
+
+    assert client.get_sol_price_usd() == 101.5
+
+
+def test_get_sol_price_usd_falls_back_to_coingecko_when_jupiter_and_binance_fail():
+    client = _make_client("SOL")
+    client.get_prices_usd = MagicMock(side_effect=Exception("jupiter down"))
+    client._http = MagicMock()
+    client._http.get = MagicMock(
+        side_effect=[
+            Exception("binance down"),
+            _http_response(200, {"solana": {"usd": 99.2}}),
+        ]
+    )
+
+    assert client.get_sol_price_usd() == 99.2
+
+
+def test_get_sol_price_usd_uses_cached_price_when_all_sources_fail():
+    client = _make_client("SOL")
+    client._last_sol_price = 88.0
+    client.get_prices_usd = MagicMock(side_effect=Exception("jupiter down"))
+    client._http = MagicMock()
+    client._http.get = MagicMock(side_effect=Exception("network down"))
+
+    assert client.get_sol_price_usd() == 88.0
+
+
+def test_get_sol_price_usd_defaults_to_100_when_all_sources_fail_and_no_cache():
+    client = _make_client("SOL")
+    client.get_prices_usd = MagicMock(side_effect=Exception("jupiter down"))
+    client._http = MagicMock()
+    client._http.get = MagicMock(side_effect=Exception("network down"))
+
+    assert client.get_sol_price_usd() == 100.0
+
+
 def test_buy_sizing_for_sol_raises_if_price_unavailable():
     client = _make_client("SOL")
-    client.get_prices_usd = MagicMock(return_value={})
+    client.get_sol_price_usd = MagicMock(return_value=0.0)
     client.swap = MagicMock(return_value="sig")
 
     try:
