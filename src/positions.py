@@ -17,9 +17,14 @@ CREATE TABLE IF NOT EXISTS positions (
     exit_time INTEGER,
     exit_reason TEXT,
     pnl_usd REAL,
-    pnl_pct REAL
+    pnl_pct REAL,
+    trigger_order_id TEXT
 )
 """
+
+MIGRATIONS = [
+    "ALTER TABLE positions ADD COLUMN trigger_order_id TEXT",
+]
 
 
 class PositionStore:
@@ -28,6 +33,11 @@ class PositionStore:
         self._lock = threading.Lock()
         conn = self._connect()
         conn.execute(SCHEMA)
+        for migration in MIGRATIONS:
+            try:
+                conn.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # column already exists from a prior run
         conn.commit()
         conn.close()
 
@@ -72,6 +82,15 @@ class PositionStore:
             position_id = cur.lastrowid
             conn.close()
             return position_id
+
+    def set_trigger_order_id(self, position_id: int, trigger_order_id: str) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                "UPDATE positions SET trigger_order_id = ? WHERE id = ?", (trigger_order_id, position_id)
+            )
+            conn.commit()
+            conn.close()
 
     def close_position(self, position_id: int, exit_price: float, exit_reason: str) -> None:
         with self._lock:

@@ -6,6 +6,7 @@ from .config import Config
 from .dashboard import create_app
 from .geckoterminal import GeckoTerminalClient
 from .geckoterminal import POLL_INTERVAL_SECONDS as GECKOTERMINAL_POLL_INTERVAL_SECONDS
+from .jupiter_trigger import JupiterTriggerClient
 from .logger import get_logger
 from .market_state import MarketState
 from .positions import PositionStore
@@ -55,7 +56,12 @@ def main():
     store = PositionStore(config.db_path)
     client = SolanaClient(config.rpc_url, config.private_key, config.trade_currency)
     market_state = MarketState()
-    trader = Trader(client, config, store, market_state)
+
+    trigger_client = None
+    if config.use_jupiter_trigger_orders and not config.dry_run and client.keypair is not None:
+        trigger_client = JupiterTriggerClient(client.rpc, client.keypair)
+
+    trader = Trader(client, config, store, market_state, trigger_client)
 
     state_path = os.path.join(os.path.dirname(config.db_path) or ".", "watchlist_state.json")
     trader.load_state(state_path)

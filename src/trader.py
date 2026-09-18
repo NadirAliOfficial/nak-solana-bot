@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+from typing import Optional
 
 from .config import Config
 from .logger import get_logger
@@ -23,11 +24,12 @@ def _chunk(items, size):
 
 
 class Trader:
-    def __init__(self, client, config: Config, store: PositionStore, market_state=None):
+    def __init__(self, client, config: Config, store: PositionStore, market_state=None, trigger_client=None):
         self.client = client
         self.config = config
         self.store = store
         self.market_state = market_state
+        self.trigger_client = trigger_client
         self.watchlist = {}  # mint -> {symbol, first_seen}
         self.price_history = {}  # mint -> [(ts, price), ...]
         self._history_lock = threading.Lock()
@@ -201,6 +203,26 @@ class Trader:
                 currently_exposed_usd += self.config.position_size_usd
                 open_positions.append({"id": pos_id, "token_mint": r["mint"], "usd_size": self.config.position_size_usd})
 
+                if not self.config.dry_run and self.trigger_client is not None:
+                    trade_mint = getattr(self.client, "trade_mint", None)
+                    if trade_mint is not None:
+                        try:
+                            order_id = self.trigger_client.place_oco_exit_order(
+                                token_mint=r["mint"],
+                                trade_currency_mint=trade_mint,
+                                quantity=quantity,
+                                token_decimals=TOKEN_DECIMALS,
+                                tp_price_usd=r["price"] * (1 + self.config.take_profit_pct / 100),
+                                sl_price_usd=r["price"] * (1 - self.config.stop_loss_pct / 100),
+                                slippage_bps=self.config.slippage_bps,
+                            )
+                            if order_id:
+                                self.store.set_trigger_order_id(pos_id, order_id)
+                        except Exception as exc:
+                            # Falls back to our own polling-based TP/SL for this position -
+                            # never leaves it unprotected, just loses the faster on-chain exit.
+                            logger.warning(f"failed to place jupiter trigger order for {r['symbol']} ({r['mint'][:8]}): {exc}")
+
         if self.market_state is not None:
             top_movers = sorted(results, key=lambda x: x["pct_change"], reverse=True)
             self.market_state.update(top_movers, len(mints), time.time() - start)
@@ -225,6 +247,18 @@ class Trader:
             entry_price = position["entry_price"]
             quantity = position["quantity"]
             pos_age = now - position["entry_time"]
+            trigger_order_id = position["trigger_order_id"] if "trigger_order_id" in position.keys() else None
+
+            if trigger_order_id and not self.config.dry_run and self.trigger_client is not None:
+                closed_by_trigger = self._check_trigger_order(position, trigger_order_id, pos_age, max_hold_seconds)
+                if closed_by_trigger:
+                    continue
+                if closed_by_trigger is None:
+                    # Order is still open on Jupiter's side and hasn't gone stale - their
+                    # infrastructure is watching the price, so skip our own manual check.
+                    continue
+                # closed_by_trigger is False: status check failed (network error, unknown
+                # order, etc.) - fall through to our own polling TP/SL as a safety net.
 
             current_price = prices.get(mint)
             if current_price is None:
@@ -267,6 +301,46 @@ class Trader:
                 self.store.close_position(position["id"], current_price, exit_reason)
 
         return True
+
+    def _check_trigger_order(self, position, trigger_order_id, pos_age, max_hold_seconds) -> Optional[bool]:
+        """Returns True if the position was closed here (order filled), None if the order
+        is still open and not yet stale (nothing to do), or False if the caller should fall
+        back to manual polling (status unknown, or the order went stale and was cancelled)."""
+        try:
+            order = self.trigger_client.get_order_status(trigger_order_id)
+        except Exception as exc:
+            logger.warning(f"failed to check trigger order {trigger_order_id}: {exc}")
+            return False
+
+        state = str((order or {}).get("state", "")).lower()
+        if state in ("filled", "completed", "executed"):
+            exit_price = (
+                order.get("filledPriceUsd") or order.get("executionPriceUsd") or position["entry_price"]
+            )
+            exit_reason = "take_profit" if exit_price >= position["entry_price"] else "stop_loss"
+            pct = ((exit_price - position["entry_price"]) / position["entry_price"]) * 100
+            logger.info(
+                f"JUPITER TRIGGER {exit_reason.upper()} {position['token_symbol']} ({position['token_mint'][:8]}): "
+                f"{pct:+.2f}% entry={position['entry_price']} exit={exit_price}"
+            )
+            self.store.close_position(position["id"], exit_price, exit_reason)
+            return True
+
+        if state in ("cancelled", "expired", "failed"):
+            return False  # nothing left protecting this position - fall back to manual polling
+
+        if pos_age > max_hold_seconds:
+            logger.info(
+                f"trigger order for {position['token_symbol']} ({position['token_mint'][:8]}) still open past "
+                f"max hold time - cancelling to fall back to manual stale-timeout close"
+            )
+            try:
+                self.trigger_client.cancel_order(trigger_order_id)
+            except Exception as exc:
+                logger.warning(f"failed to cancel stale trigger order {trigger_order_id}: {exc}")
+            return False
+
+        return None  # still open, not stale - Jupiter is watching it, nothing to do here
 
     def run_cycle(self) -> None:
         self.manage_open_positions()

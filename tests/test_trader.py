@@ -177,6 +177,113 @@ def test_manage_open_positions_sells_before_closing_stale_position(config):
     assert closed[0]["exit_price"] == 1.0  # real current price recorded, not a hardcoded 0.0/-100%
 
 
+class FakeTriggerClient:
+    def __init__(self):
+        self.placed = []
+        self.cancelled = []
+        self._status = {}
+
+    def place_oco_exit_order(self, token_mint, trade_currency_mint, quantity, token_decimals, tp_price_usd, sl_price_usd, slippage_bps):
+        order_id = f"order-{token_mint}"
+        self.placed.append((token_mint, quantity, tp_price_usd, sl_price_usd))
+        return order_id
+
+    def set_status(self, order_id, state, filled_price_usd=None):
+        self._status[order_id] = {"id": order_id, "state": state, "filledPriceUsd": filled_price_usd}
+
+    def get_order_status(self, order_id):
+        return self._status.get(order_id)
+
+    def cancel_order(self, order_id):
+        self.cancelled.append(order_id)
+        return True
+
+
+def test_scan_and_buy_places_trigger_order_in_live_mode(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    client.trade_mint = "USDC_MINT"
+    trigger_client = FakeTriggerClient()
+    config.dry_run = False
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert client.buys == [("MintABC", 100.0)]
+    assert len(trigger_client.placed) == 1
+    mint, quantity, tp, sl = trigger_client.placed[0]
+    assert mint == "MintABC"
+    assert tp == pytest.approx(1.20 * 1.08)
+    assert sl == pytest.approx(1.20 * 0.97)
+
+    position = store.get_open_positions()[0]
+    assert position["trigger_order_id"] == "order-MintABC"
+
+
+def test_manage_open_positions_closes_on_filled_trigger_order(config):
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    store.set_trigger_order_id(pid, "order-MintABC")
+    client = FakeClient({"MintABC": 1.08})
+    trigger_client = FakeTriggerClient()
+    trigger_client.set_status("order-MintABC", "filled", filled_price_usd=1.08)
+    config.dry_run = False
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is False
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "take_profit"
+    assert closed[0]["exit_price"] == 1.08
+    assert client.sells == []  # Jupiter executed the swap, we never sent our own
+
+
+def test_manage_open_positions_skips_manual_check_while_trigger_order_open(config):
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    store.set_trigger_order_id(pid, "order-MintABC")
+    client = FakeClient({"MintABC": 0.50})  # would trip manual stop loss if we checked it
+    trigger_client = FakeTriggerClient()
+    trigger_client.set_status("order-MintABC", "open")
+    config.dry_run = False
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is True
+    assert client.sells == []
+
+
+def test_manage_open_positions_cancels_stale_trigger_order_and_falls_back_to_manual_sell(config):
+    import sqlite3
+
+    store = PositionStore(config.db_path)
+    config.max_position_hold_minutes = 1
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    store.set_trigger_order_id(pid, "order-MintABC")
+    conn = sqlite3.connect(config.db_path)
+    conn.execute("UPDATE positions SET entry_time = ? WHERE id = ?", (int(time.time()) - 120, pid))
+    conn.commit()
+    conn.close()
+
+    client = FakeClient({"MintABC": 1.0})
+    trigger_client = FakeTriggerClient()
+    trigger_client.set_status("order-MintABC", "open")
+    config.dry_run = False
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+
+    trader.manage_open_positions()
+
+    assert trigger_client.cancelled == ["order-MintABC"]
+    assert client.sells == [("MintABC", 100.0)]
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "stale_timeout"
+
+
 def test_manage_open_positions_holds_when_within_range(config):
     store = PositionStore(config.db_path)
     store.open_position("MintSOL", "SOL2", 1.0, 100.0, 100.0)

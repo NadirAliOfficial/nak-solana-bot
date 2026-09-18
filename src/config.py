@@ -27,6 +27,7 @@ class Config:
     pump_threshold_pct: float = field(default_factory=lambda: float(os.getenv("PUMP_THRESHOLD_PCT", "15")))
     take_profit_pct: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_PCT", "8")))
     stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_PCT", "3")))
+    use_jupiter_trigger_orders: bool = field(default_factory=lambda: _bool("USE_JUPITER_TRIGGER_ORDERS", True))
 
     rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
     max_position_hold_minutes: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOLD_MINUTES", "120")))

@@ -33,6 +33,14 @@ def test_close_position_computes_pnl(store):
     assert closed[0]["pnl_pct"] == pytest.approx(8.0)
 
 
+def test_set_trigger_order_id(store):
+    position_id = store.open_position("MintABC123", "DOGE2", 0.001, 100000, 100.0)
+    store.set_trigger_order_id(position_id, "jupiter-order-1")
+
+    position = store.get_position(position_id)
+    assert position["trigger_order_id"] == "jupiter-order-1"
+
+
 def test_no_duplicate_open_position_for_same_mint(store):
     store.open_position("MintSOL111", "WOJAK", 0.05, 2000, 100.0)
     assert store.has_open_position("MintSOL111") is True
