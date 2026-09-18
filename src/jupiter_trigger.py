@@ -34,7 +34,8 @@ class JupiterTriggerClient:
 
     def _authenticate(self) -> str:
         challenge_resp = self._http.post(
-            f"{TRIGGER_BASE}/auth/challenge", json={"pubkey": self._pubkey_str()}
+            f"{TRIGGER_BASE}/auth/challenge",
+            json={"walletPubkey": self._pubkey_str(), "type": "message"},
         )
         challenge_resp.raise_for_status()
         challenge = challenge_resp.json()["challenge"]
@@ -44,8 +45,8 @@ class JupiterTriggerClient:
         verify_resp = self._http.post(
             f"{TRIGGER_BASE}/auth/verify",
             json={
-                "pubkey": self._pubkey_str(),
-                "challenge": challenge,
+                "walletPubkey": self._pubkey_str(),
+                "type": "message",
                 "signature": str(signature),
             },
         )
