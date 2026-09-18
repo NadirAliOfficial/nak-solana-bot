@@ -9,6 +9,7 @@ from .logger import get_logger
 logger = get_logger(__name__)
 
 DEXSCREENER_TOKENS_API = "https://api.dexscreener.com/latest/dex/tokens"
+RUGCHECK_TOKENS_API = "https://api.rugcheck.xyz/v1/tokens"
 CACHE_TTL_SECONDS = 60  # a token's momentum can re-trigger multiple scan cycles; avoid re-checking every time
 
 
@@ -44,6 +45,40 @@ class SafetyChecker:
             return max((p.get("liquidity", {}) or {}).get("usd") or 0.0 for p in pairs)
         except Exception as exc:
             logger.debug(f"liquidity lookup failed for {mint[:8]}: {exc}")
+            return None
+
+    def get_rugcheck_data(self, mint: str) -> Optional[dict]:
+        """Returns {"lp_locked_pct", "top_holder_pct"} from RugCheck's free report
+        endpoint, or None if the lookup failed or the token isn't indexed yet.
+
+        lp_locked_pct comes from whichever market has the most USD liquidity - most
+        tokens have dozens of tiny/irrelevant markets alongside the one that matters.
+        top_holder_pct is the largest single holder's share of supply across the
+        token's full holder list (RugCheck does not separate LP/burn addresses out
+        of this list, so a legitimate large LP position can itself trip this check).
+        """
+        try:
+            resp = self._http.get(f"{RUGCHECK_TOKENS_API}/{mint}/report")
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+
+            markets = data.get("markets") or []
+            lp_locked_pct = 0.0
+            if markets:
+                def market_liquidity_usd(m):
+                    lp = m.get("lp") or {}
+                    return (lp.get("baseUSD") or 0.0) + (lp.get("quoteUSD") or 0.0)
+
+                best_market = max(markets, key=market_liquidity_usd)
+                lp_locked_pct = (best_market.get("lp") or {}).get("lpLockedPct") or 0.0
+
+            top_holders = data.get("topHolders") or []
+            top_holder_pct = max((h.get("pct") or 0.0) for h in top_holders) if top_holders else 0.0
+
+            return {"lp_locked_pct": lp_locked_pct, "top_holder_pct": top_holder_pct}
+        except Exception as exc:
+            logger.debug(f"rugcheck lookup failed for {mint[:8]}: {exc}")
             return None
 
     def get_mint_authorities(self, mint: str) -> Tuple[Optional[str], Optional[str]]:
@@ -88,5 +123,14 @@ class SafetyChecker:
 
             if config.require_freeze_authority_revoked and freeze_authority is not None:
                 return False, "freeze_authority_not_revoked"
+
+        if config.enable_rugcheck:
+            rugcheck = self.get_rugcheck_data(mint)
+            if rugcheck is None:
+                return False, "rugcheck_unknown"
+            if rugcheck["lp_locked_pct"] < config.min_lp_locked_pct:
+                return False, f"lp_locked {rugcheck['lp_locked_pct']:.0f}% < {config.min_lp_locked_pct:.0f}%"
+            if rugcheck["top_holder_pct"] > config.max_top_holder_pct:
+                return False, f"top_holder {rugcheck['top_holder_pct']:.1f}% > {config.max_top_holder_pct:.1f}%"
 
         return True, ""

@@ -37,6 +37,15 @@ class Config:
     require_freeze_authority_revoked: bool = field(
         default_factory=lambda: _bool("REQUIRE_FREEZE_AUTHORITY_REVOKED", True)
     )
+    enable_rugcheck: bool = field(default_factory=lambda: _bool("ENABLE_RUGCHECK", True))
+    min_lp_locked_pct: float = field(default_factory=lambda: float(os.getenv("MIN_LP_LOCKED_PCT", "50")))
+    max_top_holder_pct: float = field(default_factory=lambda: float(os.getenv("MAX_TOP_HOLDER_PCT", "30")))
+
+    daily_loss_limit_usd: float = field(default_factory=lambda: float(os.getenv("DAILY_LOSS_LIMIT_USD", "50")))
+    losing_streak_count: int = field(default_factory=lambda: int(os.getenv("LOSING_STREAK_COUNT", "3")))
+    losing_streak_cooldown_minutes: int = field(
+        default_factory=lambda: int(os.getenv("LOSING_STREAK_COOLDOWN_MINUTES", "20"))
+    )
 
     rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
     max_position_hold_minutes: int = field(default_factory=lambda: int(os.getenv("MAX_POSITION_HOLD_MINUTES", "120")))

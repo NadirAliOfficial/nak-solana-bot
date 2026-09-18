@@ -33,6 +33,43 @@ def test_close_position_computes_pnl(store):
     assert closed[0]["pnl_pct"] == pytest.approx(8.0)
 
 
+def test_get_consecutive_stop_losses_counts_from_most_recent(store):
+    for i in range(3):
+        pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0)
+        store.close_position(pid, 0.97, "stop_loss")
+    pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
+    store.close_position(pid, 1.08, "take_profit")
+
+    assert store.get_consecutive_stop_losses() == 0  # most recent close was a win
+
+
+def test_get_consecutive_stop_losses_stops_at_first_non_loss(store):
+    # opened (and closed) before the losing streak, so it sorts first on the id tiebreaker
+    # even if all closes land within the same wall-clock second
+    pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
+    store.close_position(pid, 1.08, "take_profit")
+    for i in range(3):
+        pid = store.open_position(f"Mint{i}", "SYM", 1.0, 100.0, 100.0)
+        store.close_position(pid, 0.97, "stop_loss")
+
+    assert store.get_consecutive_stop_losses() == 3
+
+
+def test_get_last_stop_loss_exit_time_returns_none_when_no_losses(store):
+    pid = store.open_position("MintWin", "SYM", 1.0, 100.0, 100.0)
+    store.close_position(pid, 1.08, "take_profit")
+
+    assert store.get_last_stop_loss_exit_time() is None
+
+
+def test_get_last_stop_loss_exit_time_returns_most_recent(store):
+    pid = store.open_position("MintLoss", "SYM", 1.0, 100.0, 100.0)
+    store.close_position(pid, 0.97, "stop_loss")
+
+    exit_time = store.get_last_stop_loss_exit_time()
+    assert exit_time is not None
+
+
 def test_set_trigger_order_id(store):
     position_id = store.open_position("MintABC123", "DOGE2", 0.001, 100000, 100.0)
     store.set_trigger_order_id(position_id, "jupiter-order-1")

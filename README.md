@@ -39,10 +39,34 @@ watchlist, so it stays cheap):
   means the creator can block your sell outright, and the stop loss can't
   save you from that.
 
+- **LP lock / top-holder concentration** (`ENABLE_RUGCHECK`, default true): queries
+  RugCheck.xyz's free report API. Rejects if the token's highest-liquidity market
+  has less than `MIN_LP_LOCKED_PCT` (default 50%) of its LP locked/burned, or if
+  any single holder owns more than `MAX_TOP_HOLDER_PCT` (default 30%) of supply.
+  RugCheck's indexer can lag on tokens seconds old; a lookup failure or unindexed
+  token fails closed (`rugcheck_unknown`) rather than buying blind. Since a token
+  isn't buy-eligible until it's been tracked for a full `PUMP_WINDOW_MINUTES`
+  anyway, RugCheck has usually caught up by then in practice.
+
 Set `ENABLE_SAFETY_FILTERS=false` to disable all of the above and restore the
 old momentum-only behavior. These filters do not detect a creator dumping
 their own token allocation, since that requires no special authority — they
 only remove trades with an on-chain guarantee of no exit.
+
+## Circuit breakers
+
+Independent of the per-token safety filters above — these pause *all* new
+buys regardless of which token is pumping:
+
+- **Daily loss limit** (`DAILY_LOSS_LIMIT_USD`, default $50): once today's
+  realized P&L drops to or below `-$50`, no new positions open until the next
+  UTC day. Existing open positions still exit normally.
+- **Losing-streak cooldown** (`LOSING_STREAK_COUNT`, default 3): after this
+  many consecutive stop-losses in a row, new buys pause for
+  `LOSING_STREAK_COOLDOWN_MINUTES` (default 20) from the most recent one. A
+  win or take-profit resets the streak.
+
+Set either count/limit to `0` to disable it.
 
 ## How it watches the market
 

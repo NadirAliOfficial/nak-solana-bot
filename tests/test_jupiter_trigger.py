@@ -66,6 +66,79 @@ def test_place_oco_exit_order_returns_order_id(mock_vtx):
     assert order_id == "order-1"
 
 
+def test_register_vault_calls_endpoint_once():
+    client = _make_client()
+    resp = MagicMock()
+    resp.status_code = 200
+    client._http.get.return_value = resp
+
+    client._register_vault({"Authorization": "Bearer jwt-token"})
+    client._register_vault({"Authorization": "Bearer jwt-token"})
+
+    assert client._http.get.call_count == 1
+    assert client._http.get.call_args.args[0].endswith("/vault/register")
+
+
+def test_register_vault_treats_409_as_success():
+    client = _make_client()
+    resp = MagicMock()
+    resp.status_code = 409
+    client._http.get.return_value = resp
+
+    client._register_vault({"Authorization": "Bearer jwt-token"})
+
+    resp.raise_for_status.assert_not_called()
+    assert client._vault_registered is True
+
+
+def test_register_vault_raises_on_real_error():
+    client = _make_client()
+    resp = MagicMock()
+    resp.status_code = 500
+    resp.raise_for_status.side_effect = Exception("server error")
+    client._http.get.return_value = resp
+
+    try:
+        client._register_vault({"Authorization": "Bearer jwt-token"})
+        assert False, "expected exception"
+    except Exception:
+        pass
+    assert client._vault_registered is False
+
+
+@patch("src.jupiter_trigger.VersionedTransaction")
+def test_place_oco_exit_order_registers_vault_before_deposit(mock_vtx):
+    client = _make_client()
+    raw_tx = MagicMock(message=b"msg-bytes", signatures=["", "", ""])
+    mock_vtx.from_bytes.return_value = raw_tx
+    populated = MagicMock()
+    populated.__bytes__ = MagicMock(return_value=b"signed-bytes")
+    mock_vtx.populate.return_value = populated
+
+    vault_resp = MagicMock()
+    vault_resp.status_code = 200
+    client._http.get.return_value = vault_resp
+    client._http.post.side_effect = [
+        _resp({"challenge": "abc123"}),
+        _resp({"token": "jwt-token"}),
+        _resp({"requestId": "req-1", "transaction": "dGVzdA=="}),
+        _resp({"id": "order-1", "txSignature": "sig", "depositConfirmed": True}),
+    ]
+
+    client.place_oco_exit_order(
+        token_mint="MintABC",
+        trade_currency_mint="USDC",
+        quantity=100.0,
+        token_decimals=6,
+        tp_price_usd=1.08,
+        sl_price_usd=0.97,
+        slippage_bps=300,
+    )
+
+    client._http.get.assert_called_once()
+    assert client._http.get.call_args.args[0].endswith("/vault/register")
+
+
 def test_get_order_status_finds_matching_order():
     client = _make_client()
     client._jwt = "jwt-token"

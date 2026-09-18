@@ -10,6 +10,9 @@ def _config(**overrides):
         min_liquidity_usd=5000,
         require_mint_authority_revoked=True,
         require_freeze_authority_revoked=True,
+        enable_rugcheck=False,
+        min_lp_locked_pct=50,
+        max_top_holder_pct=30,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -112,6 +115,86 @@ def test_check_skips_authority_lookup_when_not_required():
 
     assert passed is True
     checker.get_mint_authorities.assert_not_called()
+
+
+def test_check_fails_on_low_lp_locked_pct():
+    checker = _make_checker()
+    checker.get_liquidity_usd = MagicMock(return_value=10000.0)
+    checker.get_mint_authorities = MagicMock(return_value=(None, None))
+    checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 10.0, "top_holder_pct": 5.0})
+
+    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+
+    assert passed is False
+    assert "lp_locked" in reason
+
+
+def test_check_fails_on_high_top_holder_pct():
+    checker = _make_checker()
+    checker.get_liquidity_usd = MagicMock(return_value=10000.0)
+    checker.get_mint_authorities = MagicMock(return_value=(None, None))
+    checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 90.0, "top_holder_pct": 45.0})
+
+    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+
+    assert passed is False
+    assert "top_holder" in reason
+
+
+def test_check_fails_when_rugcheck_lookup_fails():
+    checker = _make_checker()
+    checker.get_liquidity_usd = MagicMock(return_value=10000.0)
+    checker.get_mint_authorities = MagicMock(return_value=(None, None))
+    checker.get_rugcheck_data = MagicMock(return_value=None)
+
+    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+
+    assert passed is False
+    assert reason == "rugcheck_unknown"
+
+
+def test_check_passes_rugcheck_when_thresholds_met():
+    checker = _make_checker()
+    checker.get_liquidity_usd = MagicMock(return_value=10000.0)
+    checker.get_mint_authorities = MagicMock(return_value=(None, None))
+    checker.get_rugcheck_data = MagicMock(return_value={"lp_locked_pct": 90.0, "top_holder_pct": 10.0})
+
+    passed, reason = checker.check("SomeMint", _config(enable_rugcheck=True))
+
+    assert passed is True
+    assert reason == ""
+
+
+def test_get_rugcheck_data_picks_highest_liquidity_market():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(
+        200,
+        {
+            "markets": [
+                {"lp": {"baseUSD": 100.0, "quoteUSD": 100.0, "lpLockedPct": 10.0}},
+                {"lp": {"baseUSD": 50000.0, "quoteUSD": 50000.0, "lpLockedPct": 95.0}},
+            ],
+            "topHolders": [{"pct": 3.0}, {"pct": 12.5}],
+        },
+    )
+
+    data = checker.get_rugcheck_data("SomeMint")
+
+    assert data == {"lp_locked_pct": 95.0, "top_holder_pct": 12.5}
+
+
+def test_get_rugcheck_data_returns_none_on_http_error():
+    checker = _make_checker()
+    checker._http.get.side_effect = Exception("network down")
+
+    assert checker.get_rugcheck_data("SomeMint") is None
+
+
+def test_get_rugcheck_data_returns_none_on_non_200():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(404, {})
+
+    assert checker.get_rugcheck_data("SomeMint") is None
 
 
 def test_get_liquidity_usd_returns_max_across_pairs():

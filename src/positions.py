@@ -162,6 +162,33 @@ class PositionStore:
                 "today_pnl": row["today_pnl"],
             }
 
+    def get_consecutive_stop_losses(self) -> int:
+        """Counts stop-losses backward from the most recent closed position, stopping
+        at the first non-stop-loss exit. Used for the losing-streak cooldown."""
+        with self._lock:
+            conn = self._connect()
+            rows = conn.execute(
+                "SELECT exit_reason FROM positions WHERE status = 'closed' ORDER BY exit_time DESC, id DESC LIMIT 20"
+            ).fetchall()
+            conn.close()
+        count = 0
+        for row in rows:
+            if row["exit_reason"] == "stop_loss":
+                count += 1
+            else:
+                break
+        return count
+
+    def get_last_stop_loss_exit_time(self) -> Optional[int]:
+        with self._lock:
+            conn = self._connect()
+            row = conn.execute(
+                "SELECT exit_time FROM positions WHERE status = 'closed' AND exit_reason = 'stop_loss' "
+                "ORDER BY exit_time DESC LIMIT 1"
+            ).fetchone()
+            conn.close()
+            return row["exit_time"] if row else None
+
     def get_equity_curve(self, limit: int = 500) -> list:
         with self._lock:
             conn = self._connect()

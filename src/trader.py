@@ -1,8 +1,9 @@
+import datetime
 import json
 import os
 import threading
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 from .config import Config
 from .logger import get_logger
@@ -22,6 +23,11 @@ TOKEN_DECIMALS = 6  # standard for pump.fun tokens; verify per-mint before enabl
 def _chunk(items, size):
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+def _start_of_utc_day_ts() -> float:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 class Trader:
@@ -127,6 +133,24 @@ class Trader:
             self.price_history[mint] = trimmed
             return list(trimmed)
 
+    def _buy_gate_status(self) -> Tuple[bool, str]:
+        """Global checks that pause all new buys regardless of which token is pumping.
+        Returns (blocked, reason)."""
+        if self.config.daily_loss_limit_usd > 0:
+            today_stats = self.store.get_todays_stats(_start_of_utc_day_ts())
+            if today_stats["today_pnl"] <= -self.config.daily_loss_limit_usd:
+                return True, f"daily loss limit hit (today P&L ${today_stats['today_pnl']:.2f})"
+
+        if self.config.losing_streak_count > 0:
+            streak = self.store.get_consecutive_stop_losses()
+            if streak >= self.config.losing_streak_count:
+                last_loss_time = self.store.get_last_stop_loss_exit_time()
+                cooldown_seconds = self.config.losing_streak_cooldown_minutes * 60
+                if last_loss_time and time.time() - last_loss_time < cooldown_seconds:
+                    return True, f"{streak} consecutive stop-losses - cooling down"
+
+        return False, ""
+
     def scan_and_buy(self) -> int:
         start = time.time()
 
@@ -162,7 +186,11 @@ class Trader:
         # Sort so the highest momentum movers are evaluated and bought first
         results.sort(key=lambda x: x["pct_change"], reverse=True)
 
-        for r in results:
+        buys_blocked, buys_blocked_reason = self._buy_gate_status()
+        if buys_blocked:
+            logger.info(f"no new buys this cycle: {buys_blocked_reason}")
+
+        for r in ([] if buys_blocked else results):
             if not r["is_pump"]:
                 continue
 

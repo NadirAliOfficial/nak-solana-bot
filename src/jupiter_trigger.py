@@ -28,6 +28,7 @@ class JupiterTriggerClient:
         self._http = httpx.Client(timeout=15.0)
         self._jwt: Optional[str] = None
         self._jwt_expiry = 0.0
+        self._vault_registered = False
 
     def _pubkey_str(self) -> str:
         return str(self.keypair.pubkey())
@@ -61,6 +62,18 @@ class JupiterTriggerClient:
             self._authenticate()
         return {"Authorization": f"Bearer {self._jwt}"}
 
+    def _register_vault(self, headers: dict) -> None:
+        """Must be called once before a wallet's first order - creates the per-wallet
+        vault that holds deposited funds while an order is open. Idempotent: a 409
+        means the vault already exists, which is the steady-state case after the
+        first call."""
+        if self._vault_registered:
+            return
+        resp = self._http.get(f"{TRIGGER_BASE}/vault/register", headers=headers)
+        if resp.status_code not in (200, 201, 409):
+            resp.raise_for_status()
+        self._vault_registered = True
+
     def _partial_sign(self, tx_b64: str) -> str:
         """Vault deposit/withdraw transactions require multiple signers (us, the vault,
         and a relayer) - Jupiter's backend adds the other signatures and submits the
@@ -89,6 +102,7 @@ class JupiterTriggerClient:
         when price crosses tp_price_usd (up) or sl_price_usd (down). Whichever side fills
         first auto-cancels the other. Returns the Jupiter order id, or None on failure."""
         headers = self._auth_headers()
+        self._register_vault(headers)
         amount_atomic = str(int(quantity * (10 ** token_decimals)))
 
         craft_resp = self._http.post(

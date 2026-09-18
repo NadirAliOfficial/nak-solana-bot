@@ -96,6 +96,57 @@ def test_scan_and_buy_buys_when_safety_filter_passes(config):
     assert store.has_open_position("MintABC") is True
 
 
+def test_scan_and_buy_skips_all_buys_when_daily_loss_limit_hit(config):
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintLoss", "LOSS", 1.0, 100.0, 100.0)
+    store.close_position(pid, 0.4, "stop_loss")  # -$60 realized loss today
+    config.daily_loss_limit_usd = 50.0
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is False
+
+
+def test_scan_and_buy_skips_all_buys_during_losing_streak_cooldown(config):
+    store = PositionStore(config.db_path)
+    for i in range(3):
+        pid = store.open_position(f"MintLoss{i}", "LOSS", 1.0, 100.0, 100.0)
+        store.close_position(pid, 0.97, "stop_loss")
+    config.losing_streak_count = 3
+    config.losing_streak_cooldown_minutes = 20
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is False
+
+
+def test_scan_and_buy_allows_buys_when_losing_streak_below_threshold(config):
+    store = PositionStore(config.db_path)
+    for i in range(2):
+        pid = store.open_position(f"MintLoss{i}", "LOSS", 1.0, 100.0, 100.0)
+        store.close_position(pid, 0.97, "stop_loss")
+    config.losing_streak_count = 3
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert store.has_open_position("MintABC") is True
+
+
 def test_scan_and_buy_skips_existing_position(config):
     store = PositionStore(config.db_path)
     client = FakeClient({"MintABC": 1.0})
