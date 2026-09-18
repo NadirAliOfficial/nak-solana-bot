@@ -17,6 +17,9 @@ class Config:
     rpc_url: str = field(default_factory=lambda: os.getenv("SOLANA_RPC_URL", ""))
     private_key: str = field(default_factory=lambda: os.getenv("SOLANA_PRIVATE_KEY", ""))
     dry_run: bool = field(default_factory=lambda: _bool("DRY_RUN", True))
+    dry_run_paper_balance_usd: float = field(
+        default_factory=lambda: float(os.getenv("DRY_RUN_PAPER_BALANCE_USD", "0"))
+    )
 
     trade_currency: str = field(default_factory=lambda: os.getenv("TRADE_CURRENCY", "USDC"))
     position_size_usd: float = field(default_factory=lambda: float(os.getenv("POSITION_SIZE_USD", "100")))

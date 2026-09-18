@@ -98,6 +98,42 @@ def test_scan_and_buy_buys_when_safety_filter_passes(config):
     assert store.has_open_position("MintABC") is True
 
 
+def test_scan_and_buy_respects_dry_run_paper_balance_cap(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintA": 1.0, "MintB": 1.0, "MintC": 1.0})
+    config.dry_run_paper_balance_usd = 150.0
+    config.position_size_usd = 100.0
+    config.enable_partial_exit = False
+    config.max_open_positions = 10
+    trader = Trader(client, config, store)
+    for mint in ("MintA", "MintB", "MintC"):
+        trader.add_discovered_token(Token(mint=mint, symbol=mint))
+        _prime_history(trader, mint, [1.0] * 15)
+        client.prices[mint] = 1.20
+
+    trader.scan_and_buy()
+
+    # $150 paper balance covers one $100 position but not a second
+    assert len(store.get_open_positions()) == 1
+
+
+def test_scan_and_buy_paper_balance_allows_multiple_positions_within_cap(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintA": 1.0, "MintB": 1.0})
+    config.dry_run_paper_balance_usd = 300.0
+    config.position_size_usd = 100.0
+    config.enable_partial_exit = False
+    trader = Trader(client, config, store)
+    for mint in ("MintA", "MintB"):
+        trader.add_discovered_token(Token(mint=mint, symbol=mint))
+        _prime_history(trader, mint, [1.0] * 15)
+        client.prices[mint] = 1.20
+
+    trader.scan_and_buy()
+
+    assert len(store.get_open_positions()) == 2
+
+
 def test_scan_and_buy_skips_token_younger_than_min_age(config):
     store = PositionStore(config.db_path)
     client = FakeClient({"MintABC": 1.0})

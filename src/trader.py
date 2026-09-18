@@ -210,7 +210,12 @@ class Trader:
         currently_exposed_usd = sum(p["usd_size"] for p in open_positions)
 
         available_funds_usd = None
-        if self.client is not None and hasattr(self.client, "get_tradable_balance_usd"):
+        if self.config.dry_run and self.config.dry_run_paper_balance_usd > 0:
+            # Lets dry run simulate a paper bankroll without needing a funded wallet -
+            # still subject to the same real-balance-style constraint below, just against
+            # a configured number instead of an on-chain lookup.
+            available_funds_usd = self.config.dry_run_paper_balance_usd
+        elif self.client is not None and hasattr(self.client, "get_tradable_balance_usd"):
             try:
                 available_funds_usd = self.client.get_tradable_balance_usd(self.config.gas_reserve_sol)
             except Exception as exc:
