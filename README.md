@@ -122,19 +122,24 @@ Every buy splits into two legs when `ENABLE_PARTIAL_EXIT` (default true) is
 on, sized by `PARTIAL_EXIT_PCT` (default 50/50). What the second leg does
 depends on `ENABLE_369_SYSTEM`:
 
-- **Solana 369 System** (`ENABLE_369_SYSTEM`, default true): -3%
-  `STOP_LOSS_PCT` on both legs, first leg takes profit at `TAKE_PROFIT_PCT`
-  (default 6%), second leg at `TAKE_PROFIT_PCT_2` (default 9%). Two fixed,
-  deterministic targets instead of letting the second leg ride uncapped —
-  simpler to reason about, but a token that runs to +60% still exits both
-  legs by +9%.
-- **Trailing stop** (`ENABLE_369_SYSTEM=false`): second leg instead rides
-  with a trailing stop (`TRAILING_STOP_BPS`, default 500 = 5% below the
-  running peak) instead of a fixed target, so a real runner isn't capped at
-  the same level as an average trade. Uses Jupiter Trigger's native `single`
-  order type with `trailingBps` when live; the polling fallback tracks its
-  own peak price per position (`peak_price` in the DB) if the on-chain order
-  can't be placed.
+- **Trailing stop** (`ENABLE_369_SYSTEM=false`, default): first leg takes
+  fixed profit at `TAKE_PROFIT_PCT` (default 9%) or stops out at
+  `STOP_LOSS_PCT` (default 3%); second leg rides with a trailing stop
+  (`TRAILING_STOP_BPS`, default 500 = 5% below the running peak) instead of a
+  fixed target, so a real runner isn't capped at the same level as an average
+  trade. Uses Jupiter Trigger's native `single` order type with `trailingBps`
+  when live; the polling fallback tracks its own peak price per position
+  (`peak_price` in the DB) if the on-chain order can't be placed.
+- **Solana 369 System** (`ENABLE_369_SYSTEM=true`): -3% `STOP_LOSS_PCT` on
+  both legs, first leg takes profit at `TAKE_PROFIT_PCT`, second leg at
+  `TAKE_PROFIT_PCT_2` (default 9%) — two fixed, deterministic targets instead
+  of letting the second leg ride uncapped. Tested against a full night of
+  real trades and reverted back to trailing as the default: capping every
+  winner at a fixed target turned +$37 of actual second-leg P&L into a
+  simulated -$255, because the handful of outlier winners (one +280%, one
+  +128%) were what made a 34% win rate net profitable in the first place.
+  Simpler and more predictable, but gives up the exact mechanism the
+  strategy's profitability depends on.
 
 Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
 (single OCO order per position, full take-profit/stop-loss, no second leg).

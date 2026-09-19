@@ -28,7 +28,7 @@ class Config:
 
     pump_window_minutes: int = field(default_factory=lambda: int(os.getenv("PUMP_WINDOW_MINUTES", "15")))
     pump_threshold_pct: float = field(default_factory=lambda: float(os.getenv("PUMP_THRESHOLD_PCT", "15")))
-    take_profit_pct: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_PCT", "6")))
+    take_profit_pct: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_PCT", "9")))
     stop_loss_pct: float = field(default_factory=lambda: float(os.getenv("STOP_LOSS_PCT", "3")))
     use_jupiter_trigger_orders: bool = field(default_factory=lambda: _bool("USE_JUPITER_TRIGGER_ORDERS", True))
 
@@ -78,7 +78,7 @@ class Config:
     # "Solana 369 System": -3% stop loss (stop_loss_pct above), first leg takes profit at
     # +6%, second leg at +9%, instead of the second leg trailing. Overrides the trailing
     # leg from ENABLE_PARTIAL_EXIT when enabled.
-    enable_369_system: bool = field(default_factory=lambda: _bool("ENABLE_369_SYSTEM", True))
+    enable_369_system: bool = field(default_factory=lambda: _bool("ENABLE_369_SYSTEM", False))
     take_profit_pct_2: float = field(default_factory=lambda: float(os.getenv("TAKE_PROFIT_PCT_2", "9")))
 
     rebuy_cooldown_minutes: int = field(default_factory=lambda: int(os.getenv("REBUY_COOLDOWN_MINUTES", "30")))
