@@ -64,6 +64,12 @@ class Config:
     )
 
     enable_conviction_sizing: bool = field(default_factory=lambda: _bool("ENABLE_CONVICTION_SIZING", True))
+    max_position_risk_pct: float = field(default_factory=lambda: float(os.getenv("MAX_POSITION_RISK_PCT", "2.0")))
+
+    fast_poll_window_seconds: int = field(default_factory=lambda: int(os.getenv("FAST_POLL_WINDOW_SECONDS", "120")))
+    fast_poll_interval_seconds: float = field(
+        default_factory=lambda: float(os.getenv("FAST_POLL_INTERVAL_SECONDS", "0.15"))
+    )
 
     enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", True))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "50")))

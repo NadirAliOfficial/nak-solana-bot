@@ -62,11 +62,33 @@ buys regardless of which token is pumping:
   realized P&L drops to or below `-$50`, no new positions open until the next
   UTC day. Existing open positions still exit normally.
 - **Losing-streak cooldown** (`LOSING_STREAK_COUNT`, default 3): after this
-  many consecutive stop-losses in a row, new buys pause for
-  `LOSING_STREAK_COOLDOWN_MINUTES` (default 20) from the most recent one. A
-  win or take-profit resets the streak.
+  many consecutive *losing closes* in a row (by realized P&L, not exit_reason
+  label — a losing trailing-stop leg counts same as a losing stop-loss leg),
+  new buys pause for `LOSING_STREAK_COOLDOWN_MINUTES` (default 20) from the
+  most recent one. A win resets the streak.
 
 Set either count/limit to `0` to disable it.
+
+## Per-trade risk cap
+
+No liquidity/authority/RugCheck check reliably distinguishes a token about to
+run from one about to be dumped into by a large holder — verified against
+real trades where a winning and a soon-to-rug token had identical safety
+signals. The only reliable protection against a single rug wiping out an
+outsized chunk of capital is bounding position size independent of how
+promising a setup looks:
+
+- **`MAX_POSITION_RISK_PCT`** (default 2.0): hard ceiling on any single
+  trade's $ size as a % of total account equity (free cash + value already
+  in open positions), applied *after* conviction sizing. A setup that would
+  otherwise size up to 1.3x `POSITION_SIZE_USD` still can't exceed this cap.
+  Set to `0` to disable.
+- **`FAST_POLL_WINDOW_SECONDS`** / **`FAST_POLL_INTERVAL_SECONDS`** (default
+  120s / 0.15s): positions younger than this poll at the faster interval
+  instead of the normal ~0.5s loop. Every rug observed in testing hit within
+  minutes of buying — this narrows the reaction window during the highest-risk
+  period. It cannot save a position from a single-block wipeout, only reduce
+  latency on anything slower than that.
 
 ## Entry quality and sizing
 

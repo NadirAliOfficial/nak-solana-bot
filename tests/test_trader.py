@@ -42,6 +42,7 @@ def config(tmp_path):
     cfg.position_size_usd = 100.0
     cfg.min_token_age_seconds = 0
     cfg.enable_volume_confirmation = False
+    cfg.max_position_risk_pct = 0
     return cfg
 
 
@@ -96,6 +97,42 @@ def test_scan_and_buy_buys_when_safety_filter_passes(config):
     trader.scan_and_buy()
 
     assert store.has_open_position("MintABC") is True
+
+
+def test_scan_and_buy_caps_size_by_max_position_risk_pct(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.dry_run_paper_balance_usd = 300.0
+    config.max_position_risk_pct = 2.0  # max $6 on a $300 bankroll
+    config.enable_conviction_sizing = False
+    config.enable_partial_exit = False
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    position = store.get_open_positions()[0]
+    assert position["usd_size"] == pytest.approx(6.0)
+
+
+def test_scan_and_buy_does_not_cap_size_when_max_position_risk_pct_disabled(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.dry_run_paper_balance_usd = 300.0
+    config.max_position_risk_pct = 0  # disabled
+    config.enable_conviction_sizing = False
+    config.enable_partial_exit = False
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    position = store.get_open_positions()[0]
+    assert position["usd_size"] == pytest.approx(config.position_size_usd)
 
 
 def test_scan_and_buy_respects_dry_run_paper_balance_cap(config):
@@ -646,6 +683,49 @@ def test_manage_open_positions_holds_when_within_range(config):
     trader.manage_open_positions()
 
     assert store.has_open_position("MintSOL") is True
+
+
+def test_manage_open_positions_returns_false_false_when_no_positions(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    has_open, needs_fast_poll = trader.manage_open_positions()
+
+    assert has_open is False
+    assert needs_fast_poll is False
+
+
+def test_manage_open_positions_needs_fast_poll_for_young_position(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    config.fast_poll_window_seconds = 120
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+
+    has_open, needs_fast_poll = trader.manage_open_positions()
+
+    assert has_open is True
+    assert needs_fast_poll is True
+
+
+def test_manage_open_positions_no_fast_poll_for_older_position(config):
+    import sqlite3
+
+    store = PositionStore(config.db_path)
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    config.fast_poll_window_seconds = 120
+    conn = sqlite3.connect(config.db_path)
+    conn.execute("UPDATE positions SET entry_time = ? WHERE id = ?", (int(time.time()) - 300, pid))
+    conn.commit()
+    conn.close()
+    client = FakeClient({"MintABC": 1.0})
+    trader = Trader(client, config, store)
+
+    has_open, needs_fast_poll = trader.manage_open_positions()
+
+    assert has_open is True
+    assert needs_fast_poll is False
 
 
 def test_scan_and_buy_updates_market_state(config):

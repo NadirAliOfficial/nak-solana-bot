@@ -227,6 +227,19 @@ class Trader:
             total_realized_pnl = closed_stats.get("total_pnl", 0.0)
             available_funds_usd = max(0.0, available_funds_usd + total_realized_pnl)
 
+        # Hard ceiling on $ risked per trade as a % of account bankroll - a rug pull can
+        # wipe out a position entirely with no warning (liquidity metadata looks identical
+        # for a token about to run and one about to be dumped into), so the only reliable
+        # protection is capping how much any single trade can cost in the worst case,
+        # independent of conviction sizing's upper bound. available_funds_usd is used as-is
+        # (not summed with currently_exposed_usd): in dry run it's already the starting
+        # bankroll before exposure is deducted below, and in live mode it's the wallet's
+        # free cash - using it alone is a simpler, consistently-conservative basis than
+        # trying to reconcile "total equity" across both modes' different semantics.
+        max_risk_usd = None
+        if available_funds_usd is not None and self.config.max_position_risk_pct > 0:
+            max_risk_usd = available_funds_usd * self.config.max_position_risk_pct / 100
+
         # Sort so the highest momentum movers are evaluated and bought first
         results.sort(key=lambda x: x["pct_change"], reverse=True)
 
@@ -269,6 +282,13 @@ class Trader:
             actual_size_usd = self.config.position_size_usd
             if self.config.enable_conviction_sizing:
                 actual_size_usd *= conviction_multiplier(metrics, self.config)
+
+            if max_risk_usd is not None and actual_size_usd > max_risk_usd:
+                logger.info(
+                    f"{r['symbol']} ({r['mint'][:8]}): capping size ${actual_size_usd:.2f} -> "
+                    f"${max_risk_usd:.2f} ({self.config.max_position_risk_pct:.1f}% of bankroll)"
+                )
+                actual_size_usd = max_risk_usd
 
             # STRICT BALANCE CONSTRAINT: Even in dry run, you cannot buy more than available real balance
             if available_funds_usd is not None:
@@ -346,10 +366,14 @@ class Trader:
 
         return len(mints)
 
-    def manage_open_positions(self) -> bool:
+    def manage_open_positions(self) -> Tuple[bool, bool]:
+        """Returns (has_open_positions, needs_fast_poll). needs_fast_poll is True while
+        any position is younger than fast_poll_window_seconds - every rug pull observed
+        so far hit within minutes of buying, so the caller should poll tighter during
+        that window instead of the normal cadence."""
         open_positions = self.store.get_open_positions()
         if not open_positions:
-            return False
+            return False, False
 
         mints = [p["token_mint"] for p in open_positions]
         if self.client is not None and hasattr(self.client, "get_fast_prices_usd"):
@@ -359,11 +383,14 @@ class Trader:
 
         now = time.time()
         max_hold_seconds = self.config.max_position_hold_minutes * 60
+        needs_fast_poll = False
         for position in open_positions:
             mint = position["token_mint"]
             entry_price = position["entry_price"]
             quantity = position["quantity"]
             pos_age = now - position["entry_time"]
+            if pos_age < self.config.fast_poll_window_seconds:
+                needs_fast_poll = True
             trigger_order_id = position["trigger_order_id"] if "trigger_order_id" in position.keys() else None
             exit_style = position["exit_style"] if "exit_style" in position.keys() else "oco"
             current_price = prices.get(mint)
@@ -432,7 +459,7 @@ class Trader:
             if sell_ok:
                 self.store.close_position(position["id"], current_price, exit_reason)
 
-        return True
+        return True, needs_fast_poll
 
     def _check_trigger_order(
         self, position, trigger_order_id, pos_age, max_hold_seconds, exit_style="oco", current_price=None

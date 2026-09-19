@@ -20,12 +20,16 @@ logger = get_logger(__name__)
 def _position_monitor_loop(trader: Trader, config: Config):
     while True:
         try:
-            has_open = trader.manage_open_positions()
+            has_open, needs_fast_poll = trader.manage_open_positions()
         except Exception as exc:
             logger.error(f"position monitor failed: {exc}")
-            has_open = False
-        # When positions are open, monitor in real-time (0.5s sub-second loop)!
-        time.sleep(0.5 if has_open else 1.0)
+            has_open, needs_fast_poll = False, False
+        # Freshly-opened positions get the tightest poll (rug pulls hit within minutes of
+        # buying), older open positions get the normal sub-second loop, idle gets 1s.
+        if needs_fast_poll:
+            time.sleep(config.fast_poll_interval_seconds)
+        else:
+            time.sleep(0.5 if has_open else 1.0)
 
 
 def _geckoterminal_discovery_loop(trader: Trader, client: GeckoTerminalClient):
