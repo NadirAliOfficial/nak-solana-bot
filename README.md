@@ -118,19 +118,26 @@ how much goes into each one:
 
 ## Exits
 
-- **Partial exit + trailing stop** (`ENABLE_PARTIAL_EXIT`, default true):
-  instead of exiting the whole position at a fixed take-profit, sells
-  `PARTIAL_EXIT_PCT` (default 50%) at the normal `TAKE_PROFIT_PCT`/
-  `STOP_LOSS_PCT`, and lets the rest ride with a trailing stop
-  (`TRAILING_STOP_BPS`, default 500 = 5% below the running peak) instead of
-  capping it at the same fixed target as every other trade. A token that
-  runs to +60% no longer exits at the same +8% as one that barely ticks up.
-  The trailing leg uses Jupiter Trigger's native `single` order type with
-  `trailingBps` when live; the polling fallback tracks its own peak price
-  per position (`peak_price` in the DB) for the same behavior if the
-  on-chain order can't be placed.
-- Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
-  (single OCO order per position, full take-profit/stop-loss).
+Every buy splits into two legs when `ENABLE_PARTIAL_EXIT` (default true) is
+on, sized by `PARTIAL_EXIT_PCT` (default 50/50). What the second leg does
+depends on `ENABLE_369_SYSTEM`:
+
+- **Solana 369 System** (`ENABLE_369_SYSTEM`, default true): -3%
+  `STOP_LOSS_PCT` on both legs, first leg takes profit at `TAKE_PROFIT_PCT`
+  (default 6%), second leg at `TAKE_PROFIT_PCT_2` (default 9%). Two fixed,
+  deterministic targets instead of letting the second leg ride uncapped —
+  simpler to reason about, but a token that runs to +60% still exits both
+  legs by +9%.
+- **Trailing stop** (`ENABLE_369_SYSTEM=false`): second leg instead rides
+  with a trailing stop (`TRAILING_STOP_BPS`, default 500 = 5% below the
+  running peak) instead of a fixed target, so a real runner isn't capped at
+  the same level as an average trade. Uses Jupiter Trigger's native `single`
+  order type with `trailingBps` when live; the polling fallback tracks its
+  own peak price per position (`peak_price` in the DB) if the on-chain order
+  can't be placed.
+
+Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
+(single OCO order per position, full take-profit/stop-loss, no second leg).
 
 ## How it watches the market
 

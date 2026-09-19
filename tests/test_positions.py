@@ -47,6 +47,14 @@ def test_open_position_defaults_to_oco_with_no_peak_price(store):
 
     assert position["exit_style"] == "oco"
     assert position["peak_price"] is None
+    assert position["take_profit_pct"] is None
+
+
+def test_open_position_stores_take_profit_pct_override(store):
+    pid = store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, take_profit_pct=9.0)
+    position = store.get_position(pid)
+
+    assert position["take_profit_pct"] == 9.0
 
 
 def test_update_peak_price(store):

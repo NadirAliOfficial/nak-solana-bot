@@ -9,7 +9,8 @@ def test_config_defaults(monkeypatch):
     assert cfg.dry_run is True
     assert cfg.position_size_usd == 100.0
     assert cfg.pump_threshold_pct == 15.0
-    assert cfg.take_profit_pct == 8.0
+    assert cfg.take_profit_pct == 6.0
+    assert cfg.take_profit_pct_2 == 9.0
     assert cfg.stop_loss_pct == 3.0
     assert cfg.trade_currency == "USDC"
     assert cfg.dashboard_host == "127.0.0.1"

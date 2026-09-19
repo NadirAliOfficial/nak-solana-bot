@@ -317,14 +317,27 @@ class Trader:
                 partial_pct = self.config.partial_exit_pct / 100.0
                 if self.config.enable_partial_exit and 0 < partial_pct < 1:
                     quantity_a, usd_a = quantity * partial_pct, actual_size_usd * partial_pct
-                    legs = [(quantity_a, usd_a, "oco"), (quantity - quantity_a, actual_size_usd - usd_a, "trailing")]
+                    if self.config.enable_369_system:
+                        # Solana 369 System: -3% stop loss on both legs, first leg takes
+                        # profit at take_profit_pct (6%), second leg at take_profit_pct_2
+                        # (9%) - two fixed targets instead of letting the second leg trail.
+                        leg_b = (quantity - quantity_a, actual_size_usd - usd_a, "oco", self.config.take_profit_pct_2)
+                    else:
+                        leg_b = (quantity - quantity_a, actual_size_usd - usd_a, "trailing", None)
+                    legs = [(quantity_a, usd_a, "oco", self.config.take_profit_pct), leg_b]
                 else:
-                    legs = [(quantity, actual_size_usd, "oco")]
+                    legs = [(quantity, actual_size_usd, "oco", self.config.take_profit_pct)]
 
                 currently_exposed_usd += actual_size_usd
-                for leg_quantity, leg_usd, exit_style in legs:
+                for leg_quantity, leg_usd, exit_style, leg_take_profit_pct in legs:
                     pos_id = self.store.open_position(
-                        r["mint"], r["symbol"], r["price"], leg_quantity, leg_usd, exit_style=exit_style
+                        r["mint"],
+                        r["symbol"],
+                        r["price"],
+                        leg_quantity,
+                        leg_usd,
+                        exit_style=exit_style,
+                        take_profit_pct=leg_take_profit_pct,
                     )
                     open_positions.append({"id": pos_id, "token_mint": r["mint"], "usd_size": leg_usd})
 
@@ -342,12 +355,17 @@ class Trader:
                                         slippage_bps=self.config.slippage_bps,
                                     )
                                 else:
+                                    tp_pct = (
+                                        leg_take_profit_pct
+                                        if leg_take_profit_pct is not None
+                                        else self.config.take_profit_pct
+                                    )
                                     order_id = self.trigger_client.place_oco_exit_order(
                                         token_mint=r["mint"],
                                         trade_currency_mint=trade_mint,
                                         quantity=leg_quantity,
                                         token_decimals=TOKEN_DECIMALS,
-                                        tp_price_usd=r["price"] * (1 + self.config.take_profit_pct / 100),
+                                        tp_price_usd=r["price"] * (1 + tp_pct / 100),
                                         sl_price_usd=r["price"] * (1 - self.config.stop_loss_pct / 100),
                                         slippage_bps=self.config.slippage_bps,
                                     )
@@ -432,7 +450,9 @@ class Trader:
                 elif pos_age > max_hold_seconds:
                     exit_reason = "stale_timeout"
             else:
-                if should_take_profit(current_price, entry_price, self.config.take_profit_pct):
+                has_tp_override = "take_profit_pct" in position.keys() and position["take_profit_pct"] is not None
+                take_profit_pct = position["take_profit_pct"] if has_tp_override else self.config.take_profit_pct
+                if should_take_profit(current_price, entry_price, take_profit_pct):
                     exit_reason = "take_profit"
                 elif should_stop_loss(current_price, entry_price, self.config.stop_loss_pct):
                     exit_reason = "stop_loss"

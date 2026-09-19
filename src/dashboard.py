@@ -288,7 +288,7 @@ PAGE = """
 
     <div class="strategy-row">
       <div class="item"><span class="lbl">Buy trigger</span><b>+{{ cfg.pump_threshold_pct|int }}% / {{ cfg.pump_window_minutes }}m</b></div>
-      <div class="item"><span class="lbl">Take profit</span><b>+{{ cfg.take_profit_pct|int }}%</b></div>
+      <div class="item"><span class="lbl">Take profit</span><b>{% if cfg.enable_369_system and cfg.enable_partial_exit %}+{{ cfg.take_profit_pct|int }}% / +{{ cfg.take_profit_pct_2|int }}%{% else %}+{{ cfg.take_profit_pct|int }}%{% endif %}</b></div>
       <div class="item"><span class="lbl">Stop loss</span><b>&minus;{{ cfg.stop_loss_pct|int }}%</b></div>
       <div class="item"><span class="lbl">Position size</span><b>${{ '%.0f'|format(cfg.position_size_usd) }} / token</b></div>
       <div class="item"><span class="lbl">Trade currency</span><b>{{ cfg.trade_currency }}</b></div>
@@ -459,6 +459,7 @@ def _render_stats(
     closed_stats=None,
     today_stats=None,
     dry_run=True,
+    dry_run_paper_balance_usd=0,
 ) -> str:
     if closed_stats is not None:
         total_pnl = closed_stats.get("total_pnl", 0.0)
@@ -483,7 +484,18 @@ def _render_stats(
     today_cls = "green" if today_pnl >= 0 else "red"
     sol_value = f"{sol_balance:.3f} SOL" if sol_balance is not None else "&mdash;"
 
-    if balance is None:
+    if balance is None and dry_run and dry_run_paper_balance_usd > 0:
+        # No real wallet configured (e.g. dry-run testing without a funded burner) - show
+        # the simulated paper equity directly instead of a permanent "unable to fetch".
+        paper_equity = max(0.0, dry_run_paper_balance_usd + total_pnl)
+        balance_value = f"${paper_equity:,.2f}"
+        if paper_equity < position_size_usd:
+            balance_foot = f"Paper balance (started ${dry_run_paper_balance_usd:,.0f}) &middot; funds depleted, buys paused"
+            balance_foot_cls = "warn"
+        else:
+            balance_foot = f"Paper balance &middot; started ${dry_run_paper_balance_usd:,.0f}"
+            balance_foot_cls = ""
+    elif balance is None:
         balance_value = "&mdash;"
         balance_foot = "unable to fetch balance"
         balance_foot_cls = "warn"
@@ -793,6 +805,7 @@ def create_app(store: PositionStore, client=None, config: Config = None, market_
                 closed_stats,
                 today_stats,
                 config.dry_run,
+                config.dry_run_paper_balance_usd,
             ),
             "top_movers_html": _render_top_movers(snapshot, config.pump_threshold_pct),
             "open_table_html": _render_open_table(open_positions, prices),

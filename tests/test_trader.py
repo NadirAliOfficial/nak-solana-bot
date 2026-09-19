@@ -307,6 +307,7 @@ def test_scan_and_buy_splits_into_oco_and_trailing_legs_when_partial_exit_enable
     client = FakeClient({"MintABC": 1.0})
     config.enable_partial_exit = True
     config.partial_exit_pct = 50
+    config.enable_369_system = False  # this test targets the trailing-leg shape specifically
     trader = Trader(client, config, store)
     trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
@@ -318,6 +319,58 @@ def test_scan_and_buy_splits_into_oco_and_trailing_legs_when_partial_exit_enable
     assert len(positions) == 2
     assert sorted(p["exit_style"] for p in positions) == ["oco", "trailing"]
     assert sum(p["usd_size"] for p in positions) == pytest.approx(config.position_size_usd)
+
+
+def test_scan_and_buy_369_system_splits_into_two_oco_legs_with_different_targets(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    config.enable_partial_exit = True
+    config.partial_exit_pct = 50
+    config.enable_369_system = True
+    config.take_profit_pct = 6.0
+    config.take_profit_pct_2 = 9.0
+    trader = Trader(client, config, store)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    positions = sorted(store.get_open_positions(), key=lambda p: p["take_profit_pct"])
+    assert len(positions) == 2
+    assert [p["exit_style"] for p in positions] == ["oco", "oco"]
+    assert [p["take_profit_pct"] for p in positions] == [6.0, 9.0]
+    assert sum(p["usd_size"] for p in positions) == pytest.approx(config.position_size_usd)
+
+
+def test_manage_open_positions_369_system_first_leg_closes_at_6_pct(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 65.0, exit_style="oco", take_profit_pct=6.0)
+    client = FakeClient({"MintABC": 1.06})
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "take_profit"
+    assert closed[0]["pnl_pct"] == pytest.approx(6.0)
+
+
+def test_manage_open_positions_369_system_second_leg_holds_until_9_pct(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 65.0, exit_style="oco", take_profit_pct=9.0)
+    client = FakeClient({"MintABC": 1.07})
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+    assert store.has_open_position("MintABC") is True  # 7% hasn't hit this leg's 9% target
+
+    client.prices["MintABC"] = 1.09
+    trader.manage_open_positions()
+
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "take_profit"
+    assert closed[0]["pnl_pct"] == pytest.approx(9.0)
 
 
 def test_scan_and_buy_keeps_single_position_when_partial_exit_disabled(config):
@@ -595,6 +648,7 @@ def test_scan_and_buy_places_trigger_order_in_live_mode(config):
     client.trade_mint = "USDC_MINT"
     trigger_client = FakeTriggerClient()
     config.dry_run = False
+    config.enable_partial_exit = False  # isolate single-leg trigger-order placement
     trader = Trader(client, config, store, trigger_client=trigger_client)
     trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
     _prime_history(trader, "MintABC", [1.0] * 15)
@@ -606,11 +660,34 @@ def test_scan_and_buy_places_trigger_order_in_live_mode(config):
     assert len(trigger_client.placed) == 1
     mint, quantity, tp, sl = trigger_client.placed[0]
     assert mint == "MintABC"
-    assert tp == pytest.approx(1.20 * 1.08)
+    assert tp == pytest.approx(1.20 * (1 + config.take_profit_pct / 100))
     assert sl == pytest.approx(1.20 * 0.97)
 
     position = store.get_open_positions()[0]
     assert position["trigger_order_id"] == "order-MintABC"
+
+
+def test_scan_and_buy_369_system_places_two_oco_trigger_orders_with_different_targets(config):
+    store = PositionStore(config.db_path)
+    client = FakeClient({"MintABC": 1.0})
+    client.trade_mint = "USDC_MINT"
+    trigger_client = FakeTriggerClient()
+    config.dry_run = False
+    config.enable_partial_exit = True
+    config.enable_369_system = True
+    config.take_profit_pct = 6.0
+    config.take_profit_pct_2 = 9.0
+    trader = Trader(client, config, store, trigger_client=trigger_client)
+    trader.add_discovered_token(Token(mint="MintABC", symbol="ABC"))
+    _prime_history(trader, "MintABC", [1.0] * 15)
+    client.prices["MintABC"] = 1.20
+
+    trader.scan_and_buy()
+
+    assert len(trigger_client.placed) == 2
+    tps = sorted(tp for _, _, tp, _ in trigger_client.placed)
+    assert tps[0] == pytest.approx(1.20 * 1.06)
+    assert tps[1] == pytest.approx(1.20 * 1.09)
 
 
 def test_manage_open_positions_closes_on_filled_trigger_order(config):

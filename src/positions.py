@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS positions (
     pnl_pct REAL,
     trigger_order_id TEXT,
     exit_style TEXT NOT NULL DEFAULT 'oco',
-    peak_price REAL
+    peak_price REAL,
+    take_profit_pct REAL
 )
 """
 
@@ -28,6 +29,7 @@ MIGRATIONS = [
     "ALTER TABLE positions ADD COLUMN trigger_order_id TEXT",
     "ALTER TABLE positions ADD COLUMN exit_style TEXT NOT NULL DEFAULT 'oco'",
     "ALTER TABLE positions ADD COLUMN peak_price REAL",
+    "ALTER TABLE positions ADD COLUMN take_profit_pct REAL",
 ]
 
 
@@ -80,14 +82,27 @@ class PositionStore:
         quantity: float,
         usd_size: float,
         exit_style: str = "oco",
+        take_profit_pct: Optional[float] = None,
     ) -> int:
+        """take_profit_pct overrides config.take_profit_pct for this specific leg - used
+        by the tiered take-profit system where each leg targets a different %."""
         peak_price = entry_price if exit_style == "trailing" else None
         with self._lock:
             conn = self._connect()
             cur = conn.execute(
                 "INSERT INTO positions (token_mint, token_symbol, entry_price, quantity, usd_size, entry_time, "
-                "status, exit_style, peak_price) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
-                (token_mint, token_symbol, entry_price, quantity, usd_size, int(time.time()), exit_style, peak_price),
+                "status, exit_style, peak_price, take_profit_pct) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
+                (
+                    token_mint,
+                    token_symbol,
+                    entry_price,
+                    quantity,
+                    usd_size,
+                    int(time.time()),
+                    exit_style,
+                    peak_price,
+                    take_profit_pct,
+                ),
             )
             conn.commit()
             position_id = cur.lastrowid

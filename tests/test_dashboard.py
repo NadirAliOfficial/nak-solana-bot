@@ -130,6 +130,34 @@ def test_index_shows_balances(store):
     assert b"1.234 SOL" in resp.data
 
 
+def test_index_shows_paper_balance_when_no_real_wallet(store):
+    pid = store.open_position("MintX", "X", 1.0, 100.0, 100.0)
+    store.close_position(pid, 1.08, "take_profit")  # +$8 realized
+
+    fake_client = FakePriceClient({}, balance=None)
+    config = Config()
+    config.dry_run = True
+    config.dry_run_paper_balance_usd = 300.0
+    app = create_app(store, client=fake_client, config=config)
+    resp = app.test_client().get("/")
+    html = resp.data.decode("utf-8")
+
+    assert "$308.00" in html  # 300 base + 8 realized pnl
+    assert "unable to fetch balance" not in html
+
+
+def test_index_shows_unable_to_fetch_when_no_wallet_and_no_paper_balance(store):
+    fake_client = FakePriceClient({}, balance=None)
+    config = Config()
+    config.dry_run = True
+    config.dry_run_paper_balance_usd = 0
+    app = create_app(store, client=fake_client, config=config)
+    resp = app.test_client().get("/")
+    html = resp.data.decode("utf-8")
+
+    assert "unable to fetch balance" in html
+
+
 def test_top_movers_render_with_market_state(store):
     market_state = MarketState()
     market_state.update(
