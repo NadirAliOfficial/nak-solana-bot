@@ -762,6 +762,47 @@ def test_manage_open_positions_holds_when_within_range(config):
     assert store.has_open_position("MintSOL") is True
 
 
+def test_manage_open_positions_closes_dead_token_after_configured_timeout(config):
+    import sqlite3
+
+    store = PositionStore(config.db_path)
+    config.dead_token_timeout_seconds = 300
+    pid = store.open_position("MintDead", "DEAD", 1.0, 100.0, 100.0)
+    conn = sqlite3.connect(config.db_path)
+    conn.execute("UPDATE positions SET entry_time = ? WHERE id = ?", (int(time.time()) - 301, pid))
+    conn.commit()
+    conn.close()
+
+    client = FakeClient({})  # no price available for this mint
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintDead") is False
+    closed = store.get_closed_positions()
+    assert closed[0]["exit_reason"] == "dead_token"
+    assert closed[0]["pnl_usd"] == pytest.approx(-100.0)  # full loss, no price to sell at
+
+
+def test_manage_open_positions_does_not_close_dead_token_before_timeout(config):
+    import sqlite3
+
+    store = PositionStore(config.db_path)
+    config.dead_token_timeout_seconds = 300
+    pid = store.open_position("MintMissing", "MISS", 1.0, 100.0, 100.0)
+    conn = sqlite3.connect(config.db_path)
+    conn.execute("UPDATE positions SET entry_time = ? WHERE id = ?", (int(time.time()) - 60, pid))
+    conn.commit()
+    conn.close()
+
+    client = FakeClient({})
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintMissing") is True
+
+
 def test_manage_open_positions_returns_false_false_when_no_positions(config):
     store = PositionStore(config.db_path)
     client = FakeClient({})

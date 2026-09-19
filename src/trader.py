@@ -427,10 +427,10 @@ class Trader:
                 # order, etc.) - fall through to our own polling exit logic as a safety net.
 
             if current_price is None:
-                # If price is unavailable and position has been open for > 30 minutes, the
-                # token is presumed dead/illiquid - a real sell would fail anyway, so this is
-                # the one case marked closed without attempting one.
-                if pos_age > 1800:
+                # If price has been unavailable for dead_token_timeout_seconds, the token is
+                # presumed dead/illiquid - a real sell would fail anyway, so this is the one
+                # case marked closed without attempting one.
+                if pos_age > self.config.dead_token_timeout_seconds:
                     logger.warning(
                         f"closing dead position for {position['token_symbol']} ({mint[:8]}): price unavailable after {int(pos_age/60)}m"
                     )

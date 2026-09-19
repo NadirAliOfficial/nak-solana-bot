@@ -144,6 +144,15 @@ depends on `ENABLE_369_SYSTEM`:
 Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
 (single OCO order per position, full take-profit/stop-loss, no second leg).
 
+**Dead token cutoff** (`DEAD_TOKEN_TIMEOUT_SECONDS`, default 300 = 5 min): if
+a position's token has no price data at all for this long, it's presumed
+illiquid/abandoned and closed as a full loss with no sell attempted — a real
+sell would fail anyway. Take-profit/stop-loss can't fire without a price to
+check against, so this is the backstop for a token that goes fully silent
+rather than gradually crashing. Was 30 minutes; shortened after observing
+several positions sit dead for the full 30 minutes with zero chance of the
+stop loss ever protecting them.
+
 ## How it watches the market
 
 Unlike Coinbase, Solana tokens have no ready-made candle API, especially for

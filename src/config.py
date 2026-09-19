@@ -71,6 +71,15 @@ class Config:
         default_factory=lambda: float(os.getenv("FAST_POLL_INTERVAL_SECONDS", "0.15"))
     )
 
+    # How long a position can go with no price data before it's written off as dead
+    # (illiquid/abandoned) and closed as a full loss. Was hardcoded to 1800s (30min) -
+    # that's 30 minutes of a stop loss having zero chance to fire since there's no price
+    # to check against. Shortened so a real rug gets flagged and stops eating polling
+    # cycles faster, without being so short that a brief API hiccup counts as dead.
+    dead_token_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("DEAD_TOKEN_TIMEOUT_SECONDS", "300"))
+    )
+
     enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", True))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "50")))
     trailing_stop_bps: int = field(default_factory=lambda: int(os.getenv("TRAILING_STOP_BPS", "500")))
