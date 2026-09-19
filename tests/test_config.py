@@ -12,6 +12,7 @@ def test_config_defaults(monkeypatch):
     assert cfg.take_profit_pct == 9.0
     assert cfg.take_profit_pct_2 == 9.0
     assert cfg.enable_369_system is False
+    assert cfg.enable_partial_exit is False
     assert cfg.stop_loss_pct == 3.0
     assert cfg.trade_currency == "USDC"
     assert cfg.dashboard_host == "127.0.0.1"

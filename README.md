@@ -118,31 +118,31 @@ how much goes into each one:
 
 ## Exits
 
-Every buy splits into two legs when `ENABLE_PARTIAL_EXIT` (default true) is
-on, sized by `PARTIAL_EXIT_PCT` (default 50/50). What the second leg does
-depends on `ENABLE_369_SYSTEM`:
+Default (`ENABLE_PARTIAL_EXIT=false`): the whole position exits at one fixed
+target — `TAKE_PROFIT_PCT` (default 9%) or `STOP_LOSS_PCT` (default 3%). No
+split, no trailing, no second leg.
 
-- **Trailing stop** (`ENABLE_369_SYSTEM=false`, default): first leg takes
-  fixed profit at `TAKE_PROFIT_PCT` (default 9%) or stops out at
-  `STOP_LOSS_PCT` (default 3%); second leg rides with a trailing stop
-  (`TRAILING_STOP_BPS`, default 500 = 5% below the running peak) instead of a
-  fixed target, so a real runner isn't capped at the same level as an average
-  trade. Uses Jupiter Trigger's native `single` order type with `trailingBps`
-  when live; the polling fallback tracks its own peak price per position
-  (`peak_price` in the DB) if the on-chain order can't be placed.
-- **Solana 369 System** (`ENABLE_369_SYSTEM=true`): -3% `STOP_LOSS_PCT` on
-  both legs, first leg takes profit at `TAKE_PROFIT_PCT`, second leg at
-  `TAKE_PROFIT_PCT_2` (default 9%) — two fixed, deterministic targets instead
-  of letting the second leg ride uncapped. Tested against a full night of
-  real trades and reverted back to trailing as the default: capping every
-  winner at a fixed target turned +$37 of actual second-leg P&L into a
-  simulated -$255, because the handful of outlier winners (one +280%, one
-  +128%) were what made a 34% win rate net profitable in the first place.
-  Simpler and more predictable, but gives up the exact mechanism the
-  strategy's profitability depends on.
+This was the losing-side experiment worth documenting: `ENABLE_PARTIAL_EXIT`
+splits every buy into two legs (`PARTIAL_EXIT_PCT`, default 50/50) so the
+second leg can use a different exit mechanism - either a trailing stop
+(`ENABLE_369_SYSTEM=false`) that rides on `TRAILING_STOP_BPS` (default 500 =
+5% below the running peak) instead of a fixed target, or a second fixed
+target via the **Solana 369 System** (`ENABLE_369_SYSTEM=true`,
+`TAKE_PROFIT_PCT_2`). Checked against 238 real trades: the fixed-target leg
+was roughly breakeven (-$17 total), while the trailing leg alone accounted
+for -$184 of the total -$201 loss - 30% of trailing legs never even cleared
+entry before stopping out, and the 5% distance was getting shaken out by
+normal price noise more often than it caught real runners. An earlier,
+much smaller sample (54 trades) had made trailing look profitable because
+a couple of outlier winners (+280%, +128%) dominated it; that didn't hold
+up once there was more data. Splitting into two legs also means twice the
+on-chain orders in live mode for a mechanism that isn't earning its keep -
+hence defaulting to a single fixed-target position instead.
 
-Set `ENABLE_PARTIAL_EXIT=false` to restore the old all-or-nothing behavior
-(single OCO order per position, full take-profit/stop-loss, no second leg).
+Set `ENABLE_PARTIAL_EXIT=true` to re-enable the split if you want to
+experiment with a wider `TRAILING_STOP_BPS` (the failure mode observed was
+getting stopped out too early, not the concept itself being wrong) or with
+`ENABLE_369_SYSTEM=true` for two fixed targets instead of one.
 
 **Dead token cutoff** (`DEAD_TOKEN_TIMEOUT_SECONDS`, default 300 = 5 min): if
 a position's token has no price data at all for this long, it's presumed

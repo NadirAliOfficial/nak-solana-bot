@@ -89,7 +89,7 @@ class Config:
         default_factory=lambda: float(os.getenv("MAX_PRICE_JUMP_MULTIPLE", "50"))
     )
 
-    enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", True))
+    enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", False))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "50")))
     trailing_stop_bps: int = field(default_factory=lambda: int(os.getenv("TRAILING_STOP_BPS", "500")))
 
