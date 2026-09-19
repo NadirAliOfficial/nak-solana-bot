@@ -1,4 +1,4 @@
-# Nak Solana Bot
+# Solana 369 System
 
 Watches new token launches on Pump.fun and tokens trading on Raydium, buys any
 token up 15% in the last 15 minutes, and exits at +8% take profit or -3% stop

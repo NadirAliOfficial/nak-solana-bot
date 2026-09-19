@@ -50,7 +50,7 @@ PAGE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Nak Solana Bot</title>
+  <title>Solana 369 System</title>
   <script>
     (function () {
       try {
@@ -265,9 +265,9 @@ PAGE = """
     <div class="kicker">{{ now_label }} &middot; live strategy monitor</div>
     <div class="topbar">
       <div class="brand-row">
-        <div class="logo-badge"><img src="/static/logo.png" alt="Nak Solana Bot logo"></div>
+        <div class="logo-badge"><img src="/static/logo.png" alt="Solana 369 System logo"></div>
         <div class="brand">
-          <h1 class="serif">Nak Solana Bot</h1>
+          <h1 class="serif">Solana 369 System</h1>
           <div class="sub">Watching {{ token_count }} pump.fun / Raydium tokens &middot; updated <span id="ts">just now</span></div>
         </div>
       </div>
@@ -315,7 +315,7 @@ PAGE = """
       <div id="closed-table" class="table-scroll">{{ closed_table_html|safe }}</div>
     </div>
 
-    <footer>Nak Solana Bot &middot; dashboard refreshes every 5 seconds</footer>
+    <footer>Solana 369 System &middot; dashboard refreshes every 5 seconds</footer>
   </div>
 
   <script>

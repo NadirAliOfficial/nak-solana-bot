@@ -33,7 +33,7 @@ def test_index_renders_with_no_data(store):
     app = create_app(store, client=None, config=Config())
     resp = app.test_client().get("/")
     assert resp.status_code == 200
-    assert b"Nak Solana Bot" in resp.data
+    assert b"Solana 369 System" in resp.data
     assert b"No open positions" in resp.data
     assert b"No closed trades yet" in resp.data
 
