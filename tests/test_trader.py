@@ -762,6 +762,55 @@ def test_manage_open_positions_holds_when_within_range(config):
     assert store.has_open_position("MintSOL") is True
 
 
+def test_manage_open_positions_ignores_implausible_price_spike(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 0.001, 100.0, 100.0)
+    config.max_price_jump_multiple = 50
+    client = FakeClient({"MintABC": 6.6})  # 6600x the entry price - a bad tick, not real
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is True  # not sold into the bad price
+
+
+def test_manage_open_positions_ignores_implausible_price_crash(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0)
+    config.max_price_jump_multiple = 50
+    client = FakeClient({"MintABC": 0.001})  # 1000x down - a bad tick, not a real crash
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is True
+
+
+def test_manage_open_positions_accepts_large_but_plausible_move(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 1.0, 100.0, 100.0, exit_style="trailing")
+    config.max_price_jump_multiple = 50
+    client = FakeClient({"MintABC": 3.8})  # within the observed real-world range
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    position = store.get_position(store.get_open_positions()[0]["id"])
+    assert position["peak_price"] == pytest.approx(3.8)  # price was trusted and acted on
+
+
+def test_manage_open_positions_price_jump_check_disabled_when_zero(config):
+    store = PositionStore(config.db_path)
+    store.open_position("MintABC", "ABC", 0.001, 100.0, 100.0)
+    config.max_price_jump_multiple = 0
+    client = FakeClient({"MintABC": 6.6})
+    trader = Trader(client, config, store)
+
+    trader.manage_open_positions()
+
+    assert store.has_open_position("MintABC") is False  # trusted the reading, took profit
+
+
 def test_manage_open_positions_closes_dead_token_after_configured_timeout(config):
     import sqlite3
 

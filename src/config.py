@@ -80,6 +80,15 @@ class Config:
         default_factory=lambda: int(os.getenv("DEAD_TOKEN_TIMEOUT_SECONDS", "300"))
     )
 
+    # Rejects a single price reading implying more than this multiple of a move from
+    # entry (up or down) as an API glitch rather than a real price. The most extreme
+    # real move observed in testing was ~3.8x; 50x leaves huge headroom above any real
+    # case while catching garbage readings (observed: a 5000x bad tick). Set to 0 to
+    # disable (trust every reading as-is).
+    max_price_jump_multiple: float = field(
+        default_factory=lambda: float(os.getenv("MAX_PRICE_JUMP_MULTIPLE", "50"))
+    )
+
     enable_partial_exit: bool = field(default_factory=lambda: _bool("ENABLE_PARTIAL_EXIT", True))
     partial_exit_pct: float = field(default_factory=lambda: float(os.getenv("PARTIAL_EXIT_PCT", "50")))
     trailing_stop_bps: int = field(default_factory=lambda: int(os.getenv("TRAILING_STOP_BPS", "500")))

@@ -153,6 +153,16 @@ rather than gradually crashing. Was 30 minutes; shortened after observing
 several positions sit dead for the full 30 minutes with zero chance of the
 stop loss ever protecting them.
 
+**Price sanity check** (`MAX_PRICE_JUMP_MULTIPLE`, default 50): rejects a
+single price reading implying more than a 50x move from entry (up or down)
+as bad data rather than a real price, falling back to treating it as no
+price available for that cycle. Found live: a price feed briefly returned
+$6.60 for a token actually worth $0.0013 (a 5000x reading), which the
+take-profit check accepted at face value and "sold" into, recording a
+fabricated profit on a $3 position. The most extreme real move observed in
+testing was ~3.8x, so 50x leaves large headroom above anything legitimate.
+Set to `0` to trust every reading as-is.
+
 ## How it watches the market
 
 Unlike Coinbase, Solana tokens have no ready-made candle API, especially for

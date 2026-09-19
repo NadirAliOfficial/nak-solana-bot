@@ -413,6 +413,24 @@ class Trader:
             exit_style = position["exit_style"] if "exit_style" in position.keys() else "oco"
             current_price = prices.get(mint)
 
+            # Reject an implausible single-tick price (external API glitch) instead of
+            # acting on it. Observed live: a price feed briefly returned $6.60 for a token
+            # actually worth $0.0013 (a 5000x reading), which the take-profit check happily
+            # accepted and "sold" into, recording a fabricated $14,974 profit on a $3
+            # position. The most extreme real move observed in testing was ~3.8x; treating
+            # anything past max_price_jump_multiple as bad data and falling back to "no
+            # price this cycle" is far safer than trusting a single reading.
+            if current_price is not None and self.config.max_price_jump_multiple > 0:
+                if (
+                    current_price > entry_price * self.config.max_price_jump_multiple
+                    or current_price < entry_price / self.config.max_price_jump_multiple
+                ):
+                    logger.warning(
+                        f"ignoring implausible price for {position['token_symbol']} ({mint[:8]}): "
+                        f"entry=${entry_price} reading=${current_price} - treating as bad data, not a real move"
+                    )
+                    current_price = None
+
             if trigger_order_id and not self.config.dry_run and self.trigger_client is not None:
                 closed_by_trigger = self._check_trigger_order(
                     position, trigger_order_id, pos_age, max_hold_seconds, exit_style, current_price
