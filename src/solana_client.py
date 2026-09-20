@@ -54,6 +54,7 @@ class SolanaClient:
         self.trade_mint_decimals = USDC_DECIMALS if self.trade_mint == USDC_MINT else SOL_DECIMALS
         self._http = httpx.Client(timeout=10.0)
         self._price_rate_limiter = RateLimiter(3)  # keep well under Jupiter's public rate limit
+        self._dexscreener_rate_limiter = RateLimiter(4)  # keep well under DexScreener's public rate limit
 
     def get_prices_usd(self, mints: List[str]) -> Dict[str, float]:
         if not mints:
@@ -104,12 +105,21 @@ class SolanaClient:
         return prices
 
     def get_fast_prices_usd(self, mints: List[str]) -> Dict[str, float]:
-        """Sub-200ms ultra-fast price lookup specifically for open positions via DexScreener."""
+        """Sub-200ms ultra-fast price lookup specifically for open positions via DexScreener.
+
+        Rate-limited: the fast-poll loop can call this every 0.15s while a position is
+        young, and an unthrottled call was found hammering DexScreener into silent
+        rate-limit failures - which get misread as "no price data" and, after enough
+        consecutive misses, written off as a dead/rugged token. Several tokens marked
+        dead this way turned out to still have real liquidity on DexScreener hours
+        later, meaning the position was very likely still sellable the whole time.
+        """
         if not mints:
             return {}
         prices = {}
         for i in range(0, len(mints), 30):
             chunk = mints[i : i + 30]
+            self._dexscreener_rate_limiter.wait()
             try:
                 resp = self._http.get(
                     f"https://api.dexscreener.com/latest/dex/tokens/{','.join(chunk)}"
@@ -124,6 +134,11 @@ class SolanaClient:
                                 prices[base_addr] = float(price_str)
                             except (ValueError, TypeError):
                                 pass
+                else:
+                    logger.warning(
+                        f"dexscreener fast price lookup returned {resp.status_code} for "
+                        f"{len(chunk)} mint(s) - likely rate limited, not necessarily no data"
+                    )
             except Exception as exc:
                 logger.debug(f"dexscreener fast price error: {exc}")
 
