@@ -51,8 +51,9 @@ class RateLimiter:
 # its own calls (or not at all), so the combined request rate across all of them together
 # was blowing well past DexScreener's real limit even though each path looked fine in
 # isolation - observed live as 2300+ silent 429s in 22 hours. One shared instance actually
-# caps the total.
-DEXSCREENER_RATE_LIMITER = RateLimiter(3)
+# caps the total. 3/sec still produced constant 429s in practice; a clean isolated probe
+# at 1/sec got zero, so that's the verified-safe rate.
+DEXSCREENER_RATE_LIMITER = RateLimiter(1)
 
 
 class SolanaClient:
