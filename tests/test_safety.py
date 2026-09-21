@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.safety import SafetyChecker, conviction_multiplier
 
@@ -282,6 +282,16 @@ def test_get_dexscreener_liquidity_usd_returns_max_across_pairs():
     )
 
     assert checker._get_dexscreener_liquidity_usd("SomeMint") == 9000
+
+
+def test_get_dexscreener_liquidity_usd_uses_shared_rate_limiter():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(200, {"pairs": []})
+
+    with patch("src.safety.DEXSCREENER_RATE_LIMITER") as mock_limiter:
+        checker._get_dexscreener_liquidity_usd("SomeMint")
+
+    mock_limiter.wait.assert_called_once()
 
 
 def test_get_liquidity_usd_returns_none_when_no_pairs():

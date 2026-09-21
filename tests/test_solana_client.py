@@ -139,7 +139,6 @@ def test_buy_sizing_for_sol_raises_if_price_unavailable():
 def test_get_fast_prices_usd_parses_dexscreener_response():
     client = _make_client("USDC")
     client._http = MagicMock()
-    client._dexscreener_rate_limiter = MagicMock()
     client._http.get.return_value = _http_response(
         200,
         {"pairs": [{"baseToken": {"address": "MintABC"}, "priceUsd": "1.23"}]},
@@ -153,19 +152,33 @@ def test_get_fast_prices_usd_parses_dexscreener_response():
 def test_get_fast_prices_usd_rate_limits_every_chunk():
     client = _make_client("USDC")
     client._http = MagicMock()
-    client._dexscreener_rate_limiter = MagicMock()
     client._http.get.return_value = _http_response(200, {"pairs": []})
     client.get_prices_usd = MagicMock(return_value={})  # avoid the fallback lookup path
 
-    client.get_fast_prices_usd(["MintABC"])
+    with patch("src.solana_client.DEXSCREENER_RATE_LIMITER") as mock_limiter:
+        client.get_fast_prices_usd(["MintABC"])
 
-    client._dexscreener_rate_limiter.wait.assert_called_once()
+    mock_limiter.wait.assert_called_once()
+
+
+def test_get_prices_usd_dexscreener_fallback_is_rate_limited():
+    client = _make_client("USDC")
+    client._http = MagicMock()
+    client._http.get.side_effect = [
+        _http_response(429, {}),  # Jupiter rate limited
+        _http_response(200, {"pairs": []}),  # DexScreener fallback
+    ]
+    client._price_rate_limiter = MagicMock()
+
+    with patch("src.solana_client.DEXSCREENER_RATE_LIMITER") as mock_limiter:
+        client.get_prices_usd(["MintABC"])
+
+    mock_limiter.wait.assert_called_once()
 
 
 def test_get_fast_prices_usd_logs_warning_on_non_200_instead_of_silent_failure():
     client = _make_client("USDC")
     client._http = MagicMock()
-    client._dexscreener_rate_limiter = MagicMock()
     client._http.get.return_value = _http_response(429, {})
     client.get_prices_usd = MagicMock(return_value={})  # fallback also finds nothing
 
@@ -180,7 +193,6 @@ def test_get_fast_prices_usd_logs_warning_on_non_200_instead_of_silent_failure()
 def test_get_fast_prices_usd_falls_back_to_standard_lookup_when_missing():
     client = _make_client("USDC")
     client._http = MagicMock()
-    client._dexscreener_rate_limiter = MagicMock()
     client._http.get.return_value = _http_response(200, {"pairs": []})
     client.get_prices_usd = MagicMock(return_value={"MintABC": 9.99})
 

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.entry_quality import EntryQualityChecker
 
@@ -102,6 +102,16 @@ def test_get_volume_usd_picks_highest_liquidity_pair():
     data = checker.get_volume_usd("SomeMint")
 
     assert data == {"m5": 5000.0, "h1": 6000.0}
+
+
+def test_get_volume_usd_uses_shared_rate_limiter():
+    checker = _make_checker()
+    checker._http.get.return_value = _http_response(200, {"pairs": []})
+
+    with patch("src.entry_quality.DEXSCREENER_RATE_LIMITER") as mock_limiter:
+        checker.get_volume_usd("SomeMint")
+
+    mock_limiter.wait.assert_called_once()
 
 
 def test_get_volume_usd_returns_none_when_no_pairs():

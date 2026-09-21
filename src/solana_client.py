@@ -46,6 +46,15 @@ class RateLimiter:
             time.sleep(delay)
 
 
+# Process-wide shared limiter for every DexScreener call in the app (price polling here,
+# plus safety.py and entry_quality.py's own lookups). Each of those used to throttle only
+# its own calls (or not at all), so the combined request rate across all of them together
+# was blowing well past DexScreener's real limit even though each path looked fine in
+# isolation - observed live as 2300+ silent 429s in 22 hours. One shared instance actually
+# caps the total.
+DEXSCREENER_RATE_LIMITER = RateLimiter(3)
+
+
 class SolanaClient:
     def __init__(self, rpc_url: str, private_key_b58: str, trade_currency: str = "USDC"):
         self.rpc = SolanaRpcClient(rpc_url)
@@ -54,7 +63,6 @@ class SolanaClient:
         self.trade_mint_decimals = USDC_DECIMALS if self.trade_mint == USDC_MINT else SOL_DECIMALS
         self._http = httpx.Client(timeout=10.0)
         self._price_rate_limiter = RateLimiter(3)  # keep well under Jupiter's public rate limit
-        self._dexscreener_rate_limiter = RateLimiter(4)  # keep well under DexScreener's public rate limit
 
     def get_prices_usd(self, mints: List[str]) -> Dict[str, float]:
         if not mints:
@@ -85,6 +93,7 @@ class SolanaClient:
         if missing:
             for i in range(0, len(missing), 30):
                 chunk = missing[i : i + 30]
+                DEXSCREENER_RATE_LIMITER.wait()
                 try:
                     resp = self._http.get(
                         f"https://api.dexscreener.com/latest/dex/tokens/{','.join(chunk)}"
@@ -99,6 +108,10 @@ class SolanaClient:
                                     prices[base_addr] = float(price_str)
                                 except (ValueError, TypeError):
                                     pass
+                    else:
+                        logger.warning(
+                            f"dexscreener fallback returned {resp.status_code} for {len(chunk)} mint(s)"
+                        )
                 except Exception as exc:
                     logger.debug(f"dexscreener fallback error: {exc}")
 
@@ -107,19 +120,22 @@ class SolanaClient:
     def get_fast_prices_usd(self, mints: List[str]) -> Dict[str, float]:
         """Sub-200ms ultra-fast price lookup specifically for open positions via DexScreener.
 
-        Rate-limited: the fast-poll loop can call this every 0.15s while a position is
-        young, and an unthrottled call was found hammering DexScreener into silent
-        rate-limit failures - which get misread as "no price data" and, after enough
-        consecutive misses, written off as a dead/rugged token. Several tokens marked
-        dead this way turned out to still have real liquidity on DexScreener hours
-        later, meaning the position was very likely still sellable the whole time.
+        Rate-limited via the shared DEXSCREENER_RATE_LIMITER: the fast-poll loop can call
+        this every 0.15s while a position is young, and an unthrottled call was found
+        hammering DexScreener into silent rate-limit failures - which get misread as "no
+        price data" and, after enough consecutive misses, written off as a dead/rugged
+        token. Several tokens marked dead this way turned out to still have real liquidity
+        on DexScreener hours later, meaning the position was very likely still sellable the
+        whole time. A per-instance limiter wasn't enough on its own - safety.py and
+        entry_quality.py hit the same DexScreener API independently, so the combined
+        request rate across all of them together was still blowing past the real limit.
         """
         if not mints:
             return {}
         prices = {}
         for i in range(0, len(mints), 30):
             chunk = mints[i : i + 30]
-            self._dexscreener_rate_limiter.wait()
+            DEXSCREENER_RATE_LIMITER.wait()
             try:
                 resp = self._http.get(
                     f"https://api.dexscreener.com/latest/dex/tokens/{','.join(chunk)}"

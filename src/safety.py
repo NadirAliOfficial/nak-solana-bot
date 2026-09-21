@@ -5,6 +5,7 @@ import httpx
 from solders.pubkey import Pubkey
 
 from .logger import get_logger
+from .solana_client import DEXSCREENER_RATE_LIMITER
 
 logger = get_logger(__name__)
 
@@ -88,9 +89,11 @@ class SafetyChecker:
             return None
 
     def _get_dexscreener_liquidity_usd(self, mint: str) -> Optional[float]:
+        DEXSCREENER_RATE_LIMITER.wait()
         try:
             resp = self._http.get(f"{DEXSCREENER_TOKENS_API}/{mint}")
             if resp.status_code != 200:
+                logger.debug(f"dexscreener liquidity lookup returned {resp.status_code} for {mint[:8]}")
                 return None
             pairs = resp.json().get("pairs") or []
             if not pairs:

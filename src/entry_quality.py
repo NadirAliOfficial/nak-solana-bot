@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 import httpx
 
 from .logger import get_logger
+from .solana_client import DEXSCREENER_RATE_LIMITER
 
 logger = get_logger(__name__)
 
@@ -25,9 +26,11 @@ class EntryQualityChecker:
     def get_volume_usd(self, mint: str) -> Optional[dict]:
         """Returns {"m5", "h1"} volume in USD for the token's highest-liquidity pair,
         or None if the lookup failed or the token has no pairs yet."""
+        DEXSCREENER_RATE_LIMITER.wait()
         try:
             resp = self._http.get(f"{DEXSCREENER_TOKENS_API}/{mint}")
             if resp.status_code != 200:
+                logger.debug(f"dexscreener volume lookup returned {resp.status_code} for {mint[:8]}")
                 return None
             pairs = resp.json().get("pairs") or []
             if not pairs:
