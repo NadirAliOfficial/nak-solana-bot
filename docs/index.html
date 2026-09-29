@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>NAK Solana Bot | Team NAK</title>
+<meta name="description" content="Momentum trading bot for Solana meme coins with pre-buy rug and honeypot safety filters, circuit breakers and a live dashboard.">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #010610; --surface: #0a111c; --surface-2: #111a28; --border: #1f2b3d;
+    --text: #f1f5f9; --muted: #94a3b8; --brand: #10b981; --brand-soft: rgba(16,185,129,.12);
+    --warn: #f59e0b; --warn-soft: rgba(245,158,11,.10);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: Poppins, system-ui, sans-serif; line-height: 1.6; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+  header { border-bottom: 1px solid var(--border); }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-weight: 800; font-size: 18px; color: var(--text); }
+  .brand span { color: var(--brand); }
+  nav a { color: var(--muted); font-size: 14px; margin-left: 20px; }
+  nav a:hover { color: var(--text); text-decoration: none; }
+  .hero { padding: 72px 0 48px; text-align: center; }
+  .hero img { width: 120px; height: 120px; border-radius: 24px; border: 1px solid var(--border); }
+  .hero h1 { font-size: clamp(32px, 6vw, 52px); font-weight: 800; margin: 20px 0 8px; letter-spacing: -.02em; }
+  .hero p { color: var(--muted); max-width: 640px; margin: 0 auto 28px; font-size: 17px; }
+  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 999px; font-weight: 600; font-size: 14px; border: 1px solid var(--border); color: var(--text); background: var(--surface); }
+  .btn:hover { border-color: var(--brand); text-decoration: none; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #012; }
+  section { padding: 40px 0; }
+  h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  .stat .v { font-size: 30px; font-weight: 800; color: var(--brand); line-height: 1.1; }
+  .stat .l { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  code { background: var(--surface-2); padding: 2px 6px; border-radius: 6px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; overflow-x: auto; margin: 0; }
+  .warn { background: var(--warn-soft); border: 1px solid rgba(245,158,11,.35); border-radius: 16px; padding: 20px; }
+  .warn h2 { color: var(--warn); font-size: 18px; }
+  .warn ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
+  .warn li { margin-bottom: 6px; }
+  footer { border-top: 1px solid var(--border); padding: 28px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">Team <span>NAK</span></div>
+    <nav><a href="#how">How it works</a><a href="#safety">Safety</a><a href="#setup">Setup</a><a href="https://github.com/NadirAliOfficial/nak-solana-bot">GitHub</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <img src="logo.png" alt="NAK Solana Bot logo">
+    <h1>NAK Solana Bot</h1>
+    <p>Momentum trading bot for Solana meme coins. It watches Pump.fun and Raydium, buys confirmed pumps, and runs pre-buy rug and honeypot checks before every trade.</p>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/NadirAliOfficial/nak-solana-bot">View on GitHub</a>
+      <a class="btn" href="https://github.com/NadirAliOfficial/nak-solana-bot/releases">Releases</a>
+      <a class="btn" href="#setup">Quick start</a>
+    </div>
+  </div>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p class="sub">Default settings. Every value is configurable in <code>.env</code>.</p>
+    <div class="grid">
+      <div class="card stat"><div class="v">+15%</div><div class="l">Buy trigger: price up over the last 15 minutes</div></div>
+      <div class="card stat"><div class="v">+9%</div><div class="l">Take profit (whole position, single target)</div></div>
+      <div class="card stat"><div class="v">-3%</div><div class="l">Stop loss</div></div>
+      <div class="card stat"><div class="v">2%</div><div class="l">Max risk per trade as a share of account equity</div></div>
+    </div>
+    <div class="grid" style="margin-top:14px">
+      <div class="card"><h3>Two discovery sources</h3><p>PumpPortal streams new Pump.fun launches and Raydium migrations in real time. GeckoTerminal is polled every 90 seconds for trending and newly listed pools across Solana.</p></div>
+      <div class="card"><h3>Own price history</h3><p>Jupiter prices are polled every 10 seconds and kept as a rolling history in memory, so momentum is computed from real observations. The watchlist persists across restarts.</p></div>
+      <div class="card"><h3>Live dashboard</h3><p>Run the bot and open <code>localhost:8090</code> for open positions, closed trades, top movers and an equity curve. It runs on your machine, not on this page.</p></div>
+    </div>
+  </section>
+
+  <section id="safety">
+    <h2>Safety filters</h2>
+    <p class="sub">Checked right before each buy. They reduce risk, they do not remove it.</p>
+    <div class="grid">
+      <div class="card"><h3>Liquidity floor</h3><p>Rejects pools under $5,000 of liquidity.</p></div>
+      <div class="card"><h3>Mint authority revoked</h3><p>Rejects tokens whose creator can still mint new supply.</p></div>
+      <div class="card"><h3>Freeze authority revoked</h3><p>Rejects tokens whose creator can freeze accounts, the classic honeypot switch.</p></div>
+      <div class="card"><h3>LP lock and holders</h3><p>Via RugCheck: at least 50% of LP locked or burned, and no single holder above 30% of supply. Fails closed if unindexed.</p></div>
+      <div class="card"><h3>Entry quality</h3><p>Minimum token age, volume confirmation and a copycat filter that keeps only the most liquid look-alike.</p></div>
+      <div class="card"><h3>Circuit breakers</h3><p>A $50 daily loss limit and a cooldown after 3 losing closes in a row pause all new buys.</p></div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <h2>Quick start</h2>
+    <p class="sub">Python 3. Leave <code>DRY_RUN=true</code> for your first run to simulate trades on real market data.</p>
+<pre>git clone https://github.com/NadirAliOfficial/nak-solana-bot.git
+cd nak-solana-bot
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env    # add your RPC URL and a dedicated burner wallet key
+python -m src.main      # dashboard at http://localhost:8090</pre>
+  </section>
+
+  <section>
+    <div class="warn">
+      <h2>Risk warnings</h2>
+      <ul>
+        <li>Most Pump.fun launches are abandoned or drained by their creator within minutes. Momentum alone catches many of them.</li>
+        <li>Some tokens block selling entirely. A stop loss cannot force an exit the contract does not allow.</li>
+        <li>The bot does not guarantee profit and can lose the full amount in a position. Use a dedicated burner wallet with only what you can afford to lose.</li>
+        <li>This is software, not financial advice. Swap execution has not been verified against a funded wallet, so test with a small amount first.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">MIT licensed. Built by <a href="https://www.theteamnak.com/">Team NAK</a>.</div>
+</footer>
+</body>
+</html>

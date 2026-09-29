@@ -5,6 +5,8 @@ token up 15% in the last 15 minutes, and exits at +8% take profit or -3% stop
 loss. Same trigger and exit logic as the Coinbase momentum bot, applied to
 Solana instead of a centralized exchange. Includes a live dashboard.
 
+**Website:** https://nadiraliofficial.github.io/nak-solana-bot/
+
 Pre-buy safety filters (liquidity floor, mint/freeze authority revocation) are
 applied by default to cut the most common rug/honeypot patterns; see
 "Safety filters" below. They reduce but do not eliminate rug pull and
@@ -13,7 +15,7 @@ honeypot risk — see the warnings below before running live.
 ## Strategy
 
 - Buy trigger: price up `PUMP_THRESHOLD_PCT` (default 15%) over `PUMP_WINDOW_MINUTES` (default 15 min)
-- Take profit: `TAKE_PROFIT_PCT` (default 8%)
+- Take profit: `TAKE_PROFIT_PCT` (default 9%)
 - Stop loss: `STOP_LOSS_PCT` (default 3%)
 - Position size: `POSITION_SIZE_USD` per token (default $100), multiple tokens can be open at once
 - Only one open position per token mint at a time
