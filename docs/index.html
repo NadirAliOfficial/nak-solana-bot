@@ -52,6 +52,8 @@
   .warn h2 { color: var(--warn); font-size: 18px; }
   .warn ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
   .warn li { margin-bottom: 6px; }
+  .frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--surface); }
+  .frame iframe { display: block; width: 100%; height: 720px; border: 0; }
   footer { border-top: 1px solid var(--border); padding: 28px 0 40px; color: var(--muted); font-size: 14px; text-align: center; }
 </style>
 </head>
@@ -59,7 +61,7 @@
 <header>
   <div class="wrap">
     <div class="brand">Team <span>NAK</span></div>
-    <nav><a href="#how">How it works</a><a href="#safety">Safety</a><a href="#setup">Setup</a><a href="https://github.com/NadirAliOfficial/nak-solana-bot">GitHub</a></nav>
+    <nav><a href="#how">How it works</a><a href="#dashboard">Dashboard</a><a href="#safety">Safety</a><a href="#setup">Setup</a><a href="https://github.com/NadirAliOfficial/nak-solana-bot">GitHub</a></nav>
   </div>
 </header>
 
@@ -70,6 +72,7 @@
     <p>Momentum trading bot for Solana meme coins. It watches Pump.fun and Raydium, buys confirmed pumps, and runs pre-buy rug and honeypot checks before every trade.</p>
     <div class="btns">
       <a class="btn primary" href="https://github.com/NadirAliOfficial/nak-solana-bot">View on GitHub</a>
+      <a class="btn" href="dashboard.html">Dashboard demo</a>
       <a class="btn" href="https://github.com/NadirAliOfficial/nak-solana-bot/releases">Releases</a>
       <a class="btn" href="#setup">Quick start</a>
     </div>
@@ -89,6 +92,15 @@
       <div class="card"><h3>Own price history</h3><p>Jupiter prices are polled every 10 seconds and kept as a rolling history in memory, so momentum is computed from real observations. The watchlist persists across restarts.</p></div>
       <div class="card"><h3>Live dashboard</h3><p>Run the bot and open <code>localhost:8090</code> for open positions, closed trades, top movers and an equity curve. It runs on your machine, not on this page.</p></div>
     </div>
+  </section>
+
+  <section id="dashboard">
+    <h2>Live dashboard</h2>
+    <p class="sub">The bot serves this monitor on your machine at <code>localhost:8090</code> and refreshes every 5 seconds. Below is the same dashboard filled with <strong>fictional sample data</strong>, so you can see the layout. Nothing here is a real trade or result.</p>
+    <div class="frame">
+      <iframe src="dashboard.html" title="NAK Solana Bot dashboard demo" loading="lazy"></iframe>
+    </div>
+    <p class="sub" style="margin-top:12px"><a href="dashboard.html">Open the full dashboard demo</a></p>
   </section>
 
   <section id="safety">

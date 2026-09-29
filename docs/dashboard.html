@@ -1,0 +1,826 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Dashboard demo | NAK Solana Bot</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem('smb-theme');
+        document.documentElement.setAttribute('data-theme', stored || 'dark');
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f7f4ee;
+      --paper-alt: #fffdf9;
+      --ink: #1c1b18;
+      --ink-dim: #7a7669;
+      --ink-faint: #a8a396;
+      --hairline: #ddd8cb;
+      --periwinkle: #6674b8;
+      --periwinkle-bg: rgba(102,116,184,0.12);
+      --tan: #c98a4b;
+      --tan-bg: rgba(201,138,75,0.14);
+      --green: #3c7a5c;
+      --green-bg: rgba(60,122,92,0.10);
+      --red: #a8452f;
+      --red-bg: rgba(168,69,47,0.10);
+    }
+    html[data-theme="dark"] {
+      --paper: #0b0e11;
+      --paper-alt: #161a1e;
+      --ink: #eaecef;
+      --ink-dim: #848e9c;
+      --ink-faint: #5e6673;
+      --hairline: #262b31;
+      --periwinkle: #93a4e8;
+      --periwinkle-bg: rgba(147,164,232,0.14);
+      --tan: #f0b90b;
+      --tan-bg: rgba(240,185,11,0.14);
+      --green: #0ecb81;
+      --green-bg: rgba(14,203,129,0.12);
+      --red: #f6465d;
+      --red-bg: rgba(246,70,93,0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .serif { font-family: 'Fraunces', Georgia, serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 40px 24px 70px; }
+
+    .icon {
+      font-family: 'Material Symbols Rounded';
+      font-weight: normal; font-style: normal;
+      font-size: 20px; line-height: 1; letter-spacing: normal; text-transform: none;
+      white-space: nowrap; word-wrap: normal; direction: ltr;
+      -webkit-font-smoothing: antialiased;
+      font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      vertical-align: middle; display: inline-block;
+    }
+
+    .kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+
+    .topbar { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 16px; border-bottom: 1px solid var(--hairline); padding-bottom: 24px; }
+    .brand-row { display: flex; align-items: center; gap: 12px; }
+    .logo-badge { width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; flex: none; }
+    .logo-badge img { width: 100%; height: 100%; object-fit: contain; }
+    .brand h1 { font-size: 30px; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+    .brand .sub { font-size: 13px; color: var(--ink-dim); margin-top: 4px; }
+
+    .topbar-actions { display: flex; align-items: center; gap: 10px; }
+    .theme-toggle {
+      width: 38px; height: 38px; border-radius: 100px; border: 1px solid var(--hairline);
+      background: var(--paper-alt); color: var(--ink-dim); display: inline-flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .theme-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
+    .theme-toggle .icon-sun { display: none; }
+    .theme-toggle .icon-moon { display: inline-block; }
+    html[data-theme="dark"] .theme-toggle .icon-sun { display: inline-block; }
+    html[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+    .pill { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 100px; font-size: 12px; font-weight: 500; border: 1px solid var(--hairline); background: var(--paper-alt); }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .pill-live { color: var(--red); border-color: rgba(168,69,47,0.3); }
+    .pill-live .dot { background: var(--red); box-shadow: 0 0 0 0 rgba(168,69,47,0.4); animation: pulse 1.8s infinite; }
+    .pill-dry { color: var(--tan); border-color: rgba(201,138,75,0.35); }
+    .pill-dry .dot { background: var(--tan); }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(168,69,47,0.4); } 70% { box-shadow: 0 0 0 6px rgba(168,69,47,0); } 100% { box-shadow: 0 0 0 0 rgba(168,69,47,0); } }
+
+    .strategy-row { display: flex; gap: 22px; flex-wrap: wrap; padding: 20px 0 32px; font-size: 13px; color: var(--ink-dim); }
+    .strategy-row .item b { color: var(--ink); font-weight: 600; }
+    .strategy-row .item .lbl { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint); margin-bottom: 3px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 8px; }
+    .stat { padding: 18px 20px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--paper-alt); }
+    .stat .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .stat .label .icon { font-size: 15px; }
+    .stat .value { font-family: 'Fraunces', Georgia, serif; font-size: 28px; font-weight: 500; letter-spacing: -0.01em; font-variant-numeric: oldstyle-nums; }
+    .stat .value.green { color: var(--green); }
+    .stat .value.red { color: var(--red); }
+    .stat .value.warn { color: var(--tan); }
+    .stat .foot { font-size: 11.5px; color: var(--ink-dim); margin-top: 6px; }
+    .stat .foot.warn { color: var(--tan); }
+    .stat .today-pnl { display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--hairline); }
+    .stat .today-pnl .icon { font-size: 14px; }
+    .stat .today-pnl.green { color: var(--green); }
+    .stat .today-pnl.red { color: var(--red); }
+
+    .section { padding: 40px 0; border-bottom: 1px solid var(--hairline); }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+    .section-head h2 { font-family: 'Fraunces', Georgia, serif; font-size: 20px; font-weight: 500; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .section-head h2 .icon { font-size: 19px; color: var(--ink-faint); }
+    .section-head .count { font-size: 12px; color: var(--ink-faint); }
+
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 12px 6px; text-align: left; font-size: 13px; white-space: nowrap; }
+    th { color: var(--ink-faint); font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--hairline); padding-bottom: 10px; }
+    tbody tr { border-bottom: 1px solid var(--hairline); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--paper-alt); }
+    td.num { font-family: 'JetBrains Mono', monospace; }
+    .sym { font-weight: 600; display: inline-flex; align-items: center; }
+    .sym .tick { color: var(--ink-faint); font-weight: 400; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-left: 4px; }
+    .coin-badge {
+      width: 22px; height: 22px; border-radius: 50%; background: var(--periwinkle-bg); color: var(--periwinkle);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+      margin-right: 8px; flex: none;
+    }
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      margin-left: 4px;
+      cursor: pointer;
+      color: var(--ink-faint);
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.15s ease, background-color 0.15s ease;
+      vertical-align: middle;
+    }
+    .copy-btn:hover {
+      color: var(--ink);
+      background: var(--hairline);
+    }
+    .copy-btn .icon {
+      font-size: 13px;
+    }
+    .copy-btn.copied {
+      color: var(--green);
+    }
+
+    .tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
+    .tag .icon { font-size: 15px; }
+    .tag-tp { color: var(--green); }
+    .tag-sl { color: var(--red); }
+
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+
+    .empty { padding: 44px 6px; color: var(--ink-faint); font-size: 13px; font-style: italic; }
+
+    .equity-svg { width: 100%; height: 130px; display: block; }
+    .equity-svg .zero-line { stroke: var(--hairline); }
+    .equity-svg .line.pos { stroke: var(--green); }
+    .equity-svg .line.neg { stroke: var(--red); }
+    .equity-svg .dot.pos { fill: var(--green); }
+    .equity-svg .dot.neg { fill: var(--red); }
+    .chart-caption { font-size: 12px; color: var(--ink-dim); font-style: italic; margin-top: 12px; }
+
+    .mover-bar { width: 160px; height: 6px; border-radius: 100px; background: var(--hairline); overflow: hidden; }
+    .mover-bar-fill { height: 100%; border-radius: 100px; }
+    .mover-bar-fill.cool { background: var(--periwinkle); opacity: 0.6; }
+    .mover-bar-fill.warm { background: var(--tan); }
+    .mover-bar-fill.hot { background: var(--green); }
+
+    footer { text-align: center; color: var(--ink-faint); font-size: 11px; margin-top: 32px; }
+
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll table { min-width: 640px; }
+
+    .pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 14px 0 2px; font-size: 12px; color: var(--ink-dim); }
+    .pager button {
+      background: var(--paper-alt); border: 1px solid var(--hairline); color: var(--ink);
+      border-radius: 100px; padding: 5px 14px; font-size: 12px; cursor: pointer;
+    }
+    .pager button:hover:not(:disabled) { border-color: var(--ink-faint); }
+    .pager button:disabled { opacity: 0.4; cursor: default; }
+
+    @media (max-width: 640px) {
+      .wrap { padding: 28px 16px 50px; }
+      .brand h1 { font-size: 23px; }
+      .brand .sub { font-size: 12px; }
+      .stat .value { font-size: 24px; }
+      .section { padding: 28px 0; }
+      .section-head h2 { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+<div style="background:#f59e0b;color:#1a1204;font:600 13px/1.4 system-ui,sans-serif;text-align:center;padding:8px 12px">Demo with fictional sample data. These are not real trades or results. <a href="./" style="color:#1a1204">Back to the site</a></div>
+  <div class="wrap">
+    <div class="kicker">DEMO &middot; sample data</div>
+    <div class="topbar">
+      <div class="brand-row">
+        <div class="logo-badge"><img src="logo.png" alt="Solana 369 System logo"></div>
+        <div class="brand">
+          <h1 class="serif">Solana 369 System</h1>
+          <div class="sub">Watching 214 pump.fun / Raydium tokens &middot; sample snapshot</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        
+        <div class="pill pill-dry"><span class="dot"></span>Demo — fictional sample data</div>
+        
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle color theme" title="Toggle color theme">
+          <span class="icon icon-sun">light_mode</span>
+          <span class="icon icon-moon">dark_mode</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="stats">
+    <div class="grid">
+      <div class="stat">
+        <div class="label"><span class="icon">account_balance</span>Balance</div>
+        <div class="value">$1,000.00</div>
+        <div class="foot ">Paper equity: $1,055.25 &middot; Real: 0.500 SOL</div>
+        <div class="today-pnl red"><span class="icon">today</span>Today -$3.76 &middot; 1 trade</div>
+      </div>
+      <div class="stat">
+        <div class="label"><span class="icon">local_gas_station</span>Gas wallet</div>
+        <div class="value">0.500 SOL</div>
+        <div class="foot">for fees and priority tips</div>
+      </div>
+      <div class="stat">
+        <div class="label"><span class="icon">paid</span>Total P&amp;L</div>
+        <div class="value green">$55.25</div>
+        <div class="foot">realized, all time</div>
+      </div>
+      <div class="stat">
+        <div class="label"><span class="icon">target</span>Win rate</div>
+        <div class="value">40%</div>
+        <div class="foot">of closed trades</div>
+      </div>
+      <div class="stat">
+        <div class="label"><span class="icon">stacks</span>Open positions</div>
+        <div class="value">3</div>
+        <div class="foot">$300.00 exposed</div>
+      </div>
+      <div class="stat">
+        <div class="label"><span class="icon">history</span>Closed trades</div>
+        <div class="value">25</div>
+        <div class="foot">10 wins &middot; 15 losses</div>
+      </div>
+    </div>
+    </div>
+
+    <div class="strategy-row">
+      <div class="item"><span class="lbl">Buy trigger</span><b>+15% / 15m</b></div>
+      <div class="item"><span class="lbl">Take profit</span><b>+9%</b></div>
+      <div class="item"><span class="lbl">Stop loss</span><b>&minus;3%</b></div>
+      <div class="item"><span class="lbl">Position size</span><b>$100 / token</b></div>
+      <div class="item"><span class="lbl">Trade currency</span><b>USDC</b></div>
+      <div class="item"><span class="lbl">Gas reserve</span><b>0.5 SOL</b></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2><span class="icon">bolt</span>Top movers</h2><span class="count">sample data</span></div>
+      <div id="top-movers" class="table-scroll">
+    <table>
+      <thead><tr><th>Token</th><th>15m change</th><th>Progress to +15% trigger</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sym"><span class="coin-badge">K</span>KITSU<span class="tick">Uk5P…6L3Z</span><button type="button" class="copy-btn" data-mint="Uk5PfqHksKiZ9aZ8EsVG4CFL2sp7JtWqshrBM2T36L3Z" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+12.40%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill warm" style="width:83%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">H</span>HYPEO<span class="tick">7u52…hZWP</span><button type="button" class="copy-btn" data-mint="7u5253wvdpmFWxXXeo74oAeYn6hGNLFf3E9Li1jhhZWP" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+9.70%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill warm" style="width:65%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">B</span>BLOOP<span class="tick">dQp9…FK7X</span><button type="button" class="copy-btn" data-mint="dQp9o4DyKcCNZ277g1YBaeSnPq2ogaf6hkgLd1toFK7X" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+7.90%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:53%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">Z</span>ZORP1<span class="tick">UruN…B4m4</span><button type="button" class="copy-btn" data-mint="UruNsjc3Xg48RAZAwES9z2BcAzPGh4TkLu9pwHkoB4m4" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+6.10%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:41%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">T</span>TANUKI<span class="tick">4A5D…dG9V</span><button type="button" class="copy-btn" data-mint="4A5DsGzGaCekEkPWqBCpVJ5TZERXvvgpoFj1dULBdG9V" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+4.80%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:32%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">F</span>FLUX3<span class="tick">FHdM…vkye</span><button type="button" class="copy-btn" data-mint="FHdMuDvvwG69dQjwkNFiukY9VPu49Sbe5gJm5sQtvkye" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+3.20%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:21%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">M</span>MOCHI<span class="tick">yugD…2xy7</span><button type="button" class="copy-btn" data-mint="yugDMwjMoih3zGqAGxvmhnUQMkH5oyxtRk13PawE2xy7" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+2.60%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:17%"></div>
+            </div>
+          </td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">B</span>BEEP<span class="tick">hMHW…8xxs</span><button type="button" class="copy-btn" data-mint="hMHW1sTyVua6nNgQgM59zCKHBmd5KDs844jSGspV8xxs" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num ">+1.90%</td>
+          <td>
+            <div class="mover-bar">
+              <div class="mover-bar-fill cool" style="width:13%"></div>
+            </div>
+          </td>
+        </tr>
+        </tbody>
+    </table>
+    <div class="chart-caption">214 tokens watched, refreshed in 1.8s</div>
+    </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2><span class="icon">show_chart</span>Equity curve</h2><span class="count">realized P&amp;L over time</span></div>
+      <div id="equity-curve">
+    <svg class="equity-svg" viewBox="0 0 1100 130" preserveAspectRatio="none">
+      <line class="zero-line" x1="12" y1="100.3" x2="1088" y2="100.3" stroke-width="1" stroke-dasharray="3 5"/>
+      <polyline class="line pos" points="12.0,103.8 56.8,106.9 101.7,111.2 146.5,100.0 191.3,103.9 236.2,109.0 281.0,113.6 325.8,118.0 370.7,104.5 415.5,108.9 460.3,112.0 505.2,94.2 550.0,81.3 594.8,86.6 639.7,91.5 684.5,74.1 729.3,61.6 774.2,66.2 819.0,53.0 863.8,35.5 908.7,42.3 953.5,25.1 998.3,12.0 1043.2,15.2 1088.0,20.6" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle class="dot pos" cx="1088.0" cy="20.6" r="3"/>
+    </svg>
+    <div class="chart-caption">Final realized P&amp;L: $55.25 across 25 closed trades.</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2><span class="icon">radar</span>Open positions</h2><span class="count" id="open-count">3 active</span></div>
+      <div id="open-table" class="table-scroll">
+    <table>
+      <thead><tr>
+        <th>Token</th><th>Entry price</th><th>Quantity</th><th>USD size</th>
+        <th>Current price</th><th>Unrealized P&amp;L</th><th>Unrealized %</th><th>Entry time</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sym"><span class="coin-badge">K</span>KITSU<span class="tick">8bqA…kEgm</span><button type="button" class="copy-btn" data-mint="8bqAFShupojU85EheoaY41gV2nJiw4F2tn8wtrxqkEgm" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00092000</td>
+          <td class="num">108695.65</td>
+          <td class="num">$100.00</td>
+          
+              <td class="num">0.00095772</td>
+              <td class="num pos">$4.10</td>
+              <td class="num pos">+4.10%</td>
+            
+          <td>06:20:53</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">Z</span>ZORP1<span class="tick">jftb…FfDb</span><button type="button" class="copy-btn" data-mint="jftbJnZB8yTAKbhf79cg3YCbe2TkqNGcU2Lsu94vFfDb" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00031000</td>
+          <td class="num">322580.65</td>
+          <td class="num">$100.00</td>
+          
+              <td class="num">0.00032922</td>
+              <td class="num pos">$6.20</td>
+              <td class="num pos">+6.20%</td>
+            
+          <td>06:19:37</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">B</span>BLOOP<span class="tick">Uin2…9Gr3</span><button type="button" class="copy-btn" data-mint="Uin2CUgi9GpZ3LxUEVZnPNWCWyk9RpaqRi5Swvkx9Gr3" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01340000</td>
+          <td class="num">7462.69</td>
+          <td class="num">$100.00</td>
+          
+              <td class="num">0.01322580</td>
+              <td class="num neg">-$1.30</td>
+              <td class="num neg">-1.30%</td>
+            
+          <td>06:18:26</td>
+        </tr>
+        </tbody>
+    </table>
+    </div>
+    </div>
+
+    <div class="section" style="border-bottom: none;">
+      <div class="section-head"><h2><span class="icon">receipt_long</span>Closed trades</h2><span class="count" id="closed-count">25 total</span></div>
+      <div id="closed-table" class="table-scroll">
+    <table>
+      <thead><tr>
+        <th>Token</th><th>Entry</th><th>Exit</th><th>Reason</th><th>P&amp;L $</th><th>P&amp;L %</th><th>Exit time</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sym"><span class="coin-badge">A</span>ARCADE<span class="tick">iAiA…rbdS</span><button type="button" class="copy-btn" data-mint="iAiAUQqKcwsTw87u9HSPH34DeRtfTzdhgjfkXemsrbdS" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00625938</td>
+          <td class="num">0.00602426</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.76</td>
+          <td class="num neg">-3.76%</td>
+          <td>01:14:55</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">Z</span>ZENZEN<span class="tick">Lh1h…f4S3</span><button type="button" class="copy-btn" data-mint="Lh1h7txXMuLJLQxp6DW1WqtJNKFp7hr4ZqyypQYvf4S3" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00623323</td>
+          <td class="num">0.00603829</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$2.19</td>
+          <td class="num neg">-3.13%</td>
+          <td>21:18:46</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">L</span>LLAMA5<span class="tick">3a3P…mLMv</span><button type="button" class="copy-btn" data-mint="3a3PRZJHyRWmtbGnAvTPMLf4qUNv8TBdsgH2tyjZmLMv" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00361685</td>
+          <td class="num">0.00394638</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$9.11</td>
+          <td class="num pos">+9.11%</td>
+          <td>16:22:48</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">M</span>MEMEO<span class="tick">wS7z…KaH1</span><button type="button" class="copy-btn" data-mint="wS7ztEoEMAFaMogf2aZgKk9yYRALMp9uSibguHHDKaH1" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00945587</td>
+          <td class="num">0.01032003</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$11.88</td>
+          <td class="num pos">+9.14%</td>
+          <td>11:25:29</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">O</span>OTTER<span class="tick">ofqZ…XhFS</span><button type="button" class="copy-btn" data-mint="ofqZ7As7Eqee9tLYoZDXTxcCHozDYepVBvMRwtBSXhFS" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01361523</td>
+          <td class="num">0.01312220</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$4.71</td>
+          <td class="num neg">-3.62%</td>
+          <td>06:46:32</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">S</span>SPARKY<span class="tick">U9tH…eqZX</span><button type="button" class="copy-btn" data-mint="U9tHrekmbdqjutbzpxtb28UNdH52dvNcHH1gnokKeqZX" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01669854</td>
+          <td class="num">0.01825963</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$12.15</td>
+          <td class="num pos">+9.35%</td>
+          <td>01:43:52</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">D</span>DEGENX<span class="tick">7qdp…jvoq</span><button type="button" class="copy-btn" data-mint="7qdpneen9bFoeNBMaWBBtEPDYHJsXqZjcXiVPvurjvoq" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00017324</td>
+          <td class="num">0.00018907</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$9.14</td>
+          <td class="num pos">+9.14%</td>
+          <td>20:33:34</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">C</span>CHADZ<span class="tick">byiN…W6H8</span><button type="button" class="copy-btn" data-mint="byiNffNmSNgRu8sdzZaJyN5vaLmmnLXdRXLpn22PW6H8" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01534898</td>
+          <td class="num">0.01486100</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.18</td>
+          <td class="num neg">-3.18%</td>
+          <td>15:50:14</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">R</span>RUGLESS<span class="tick">Zae8…9f7d</span><button type="button" class="copy-btn" data-mint="Zae8jq9Db99zusoiAJf8evi4YQmCdWYvbKJxiNtx9f7d" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00540909</td>
+          <td class="num">0.00587704</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$8.65</td>
+          <td class="num pos">+8.65%</td>
+          <td>11:21:49</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">N</span>NOVA5<span class="tick">UkrS…NPxX</span><button type="button" class="copy-btn" data-mint="UkrSbF8fTJLdeVb1QmwwQPvCfbZf5j6jMdGY4gzwNPxX" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00620149</td>
+          <td class="num">0.00677670</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$12.06</td>
+          <td class="num pos">+9.28%</td>
+          <td>06:43:54</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">K</span>KIWIKO<span class="tick">3CVK…Qxmc</span><button type="button" class="copy-btn" data-mint="3CVKCiaHaXdiKsFNAVVkBGWWx26SMjBS9NBziChkQxmc" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01631557</td>
+          <td class="num">0.01575674</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.43</td>
+          <td class="num neg">-3.43%</td>
+          <td>01:37:05</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">Y</span>YOLO88<span class="tick">Xst5…NVKm</span><button type="button" class="copy-btn" data-mint="Xst5Fgivf389iusydFjAc8sqKmGMqcczRQ83S8MDNVKm" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00903544</td>
+          <td class="num">0.00870680</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.64</td>
+          <td class="num neg">-3.64%</td>
+          <td>20:25:25</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">P</span>PIXELZ<span class="tick">Rogg…d5Jj</span><button type="button" class="copy-btn" data-mint="Roggph6tRCzqojqT67kuZyip1X6x2KTjTtYytPcUd5Jj" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01497680</td>
+          <td class="num">0.01631110</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$8.91</td>
+          <td class="num pos">+8.91%</td>
+          <td>16:03:11</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">H</span>HODLR<span class="tick">rHke…1uSd</span><button type="button" class="copy-btn" data-mint="rHkeuSFEVCajR4Xe5Tn8AZ4iSMZGpt1KvEjnKwKF1uSd" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00538623</td>
+          <td class="num">0.00589643</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$12.31</td>
+          <td class="num pos">+9.47%</td>
+          <td>11:19:25</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">T</span>TURBO7<span class="tick">nGDc…BSCF</span><button type="button" class="copy-btn" data-mint="nGDcYNC5Yj4mxsEkEh3h7DqE1fkWbADbd4w6AjGYBSCF" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01990701</td>
+          <td class="num">0.01930287</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$2.12</td>
+          <td class="num neg">-3.03%</td>
+          <td>06:03:50</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">S</span>SOLPUP<span class="tick">hFD1…zreU</span><button type="button" class="copy-btn" data-mint="hFD153ecpVCEFXidXA8bxWKFBGZ1DCFyjw8oz4RHzreU" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00456500</td>
+          <td class="num">0.00442621</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.04</td>
+          <td class="num neg">-3.04%</td>
+          <td>01:54:50</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">B</span>BONKLY<span class="tick">37iH…9Jh7</span><button type="button" class="copy-btn" data-mint="37iH8c5pJGAv2E1rQZ4qLuNRuSsHmMXuFEqGiGSH9Jh7" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01772474</td>
+          <td class="num">0.01937996</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$9.34</td>
+          <td class="num pos">+9.34%</td>
+          <td>20:48:58</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">G</span>GLITCH<span class="tick">XbhP…GHF9</span><button type="button" class="copy-btn" data-mint="XbhPcFAGxdbKGymoA5CDixtdx1YxM49Kz9k8Dgz2GHF9" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01534911</td>
+          <td class="num">0.01487619</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.08</td>
+          <td class="num neg">-3.08%</td>
+          <td>15:49:50</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">M</span>MOONCAT<span class="tick">htYJ…JD1T</span><button type="button" class="copy-btn" data-mint="htYJxuqvWmDjU1ijBXSBf7kGABSd7oukMqRr6Do1JD1T" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01214971</td>
+          <td class="num">0.01176363</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.18</td>
+          <td class="num neg">-3.18%</td>
+          <td>11:28:09</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">W</span>WAGMIX<span class="tick">HsaU…Y7v2</span><button type="button" class="copy-btn" data-mint="HsaUcLKzgKnMt9n8psDszRW7pNd8eKVJkrRSNH9gY7v2" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01085859</td>
+          <td class="num">0.01047819</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.50</td>
+          <td class="num neg">-3.50%</td>
+          <td>06:11:01</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">P</span>PUMPKN<span class="tick">oGo1…Qb89</span><button type="button" class="copy-btn" data-mint="oGo1Rf62RjEDvq7hLefA2CwkNMSNhN8s9rb92h8MQb89" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00935668</td>
+          <td class="num">0.00905775</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$2.72</td>
+          <td class="num neg">-3.19%</td>
+          <td>01:37:50</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">D</span>DOGEX2<span class="tick">RcaX…xKpU</span><button type="button" class="copy-btn" data-mint="RcaXozFuUvnD8FK9mzjryzfbqwfePyNzDMz963UdxKpU" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00887489</td>
+          <td class="num">0.00968904</td>
+          <td><span class="tag tag-tp"><span class="icon">trending_up</span>Take profit</span></td>
+          <td class="num pos">$7.80</td>
+          <td class="num pos">+9.17%</td>
+          <td>21:07:51</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">Z</span>ZAPZAP<span class="tick">WiPx…ihr4</span><button type="button" class="copy-btn" data-mint="WiPxFbVkn6NvDM2NSAiQXsVcQxHMNQzW9vsiMb1pihr4" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.00439469</td>
+          <td class="num">0.00423915</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$3.01</td>
+          <td class="num neg">-3.54%</td>
+          <td>15:28:42</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">N</span>NEKO9<span class="tick">Ra3R…5a3o</span><button type="button" class="copy-btn" data-mint="Ra3RehLL5iGHJcniSkhXkurTQoRVzAVuaQj8kByY5a3o" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01423865</td>
+          <td class="num">0.01380056</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$2.15</td>
+          <td class="num neg">-3.08%</td>
+          <td>10:46:43</td>
+        </tr>
+        
+        <tr>
+          <td><span class="sym"><span class="coin-badge">F</span>FROGGY<span class="tick">uxGb…7eAQ</span><button type="button" class="copy-btn" data-mint="uxGbFMSSXWDTpHH7PhYvPTTsPbxAed74F2tiHQFZ7eAQ" onclick="copyAddress(this)" title="Copy address" aria-label="Copy address"><span class="icon">content_copy</span></button></span></td>
+          <td class="num">0.01786060</td>
+          <td class="num">0.01724744</td>
+          <td><span class="tag tag-sl"><span class="icon">trending_down</span>Stop loss</span></td>
+          <td class="num neg">-$2.40</td>
+          <td class="num neg">-3.43%</td>
+          <td>06:10:28</td>
+        </tr>
+        </tbody>
+    </table>
+    </div>
+    </div>
+
+    <footer>Solana 369 System &middot; static demo with fictional sample data</footer>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      try { localStorage.setItem('smb-theme', next); } catch (e) {}
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand('copy'); } catch (err) {}
+      document.body.removeChild(ta);
+    }
+
+    function copyAddress(btn) {
+      const text = btn.dataset.mint;
+      if (!text) return;
+      function showFeedback() {
+        const icon = btn.querySelector('.icon');
+        if (icon) {
+          const orig = icon.textContent;
+          icon.textContent = 'check';
+          btn.classList.add('copied');
+          btn.setAttribute('title', 'Copied!');
+          setTimeout(() => {
+            icon.textContent = orig;
+            btn.classList.remove('copied');
+            btn.setAttribute('title', 'Copy address');
+          }, 1500);
+        }
+      }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(showFeedback).catch(() => {
+          fallbackCopy(text);
+          showFeedback();
+        });
+      } else {
+        fallbackCopy(text);
+        showFeedback();
+      }
+    }
+
+    const ROWS_PER_PAGE = 10;
+    const paginationState = {};
+
+    function paginateContainer(id) {
+      const container = document.getElementById(id);
+      if (!container) return;
+      const table = container.querySelector('table');
+      const oldPager = container.querySelector('.pager');
+      if (oldPager) oldPager.remove();
+      if (!table) return;
+
+      const tbody = table.querySelector('tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
+      let page = paginationState[id] || 0;
+      if (page >= totalPages) page = totalPages - 1;
+      if (page < 0) page = 0;
+      paginationState[id] = page;
+
+      rows.forEach((row, i) => {
+        row.hidden = !(i >= page * ROWS_PER_PAGE && i < (page + 1) * ROWS_PER_PAGE);
+      });
+
+      if (rows.length <= ROWS_PER_PAGE) return;
+
+      const pager = document.createElement('div');
+      pager.className = 'pager';
+      pager.innerHTML =
+        '<button' + (page === 0 ? ' disabled' : '') + ' data-dir="-1">Prev</button>' +
+        '<span>Page ' + (page + 1) + ' of ' + totalPages + '</span>' +
+        '<button' + (page >= totalPages - 1 ? ' disabled' : '') + ' data-dir="1">Next</button>';
+      pager.querySelectorAll('button').forEach((btn) => {
+        btn.onclick = () => {
+          paginationState[id] = (paginationState[id] || 0) + parseInt(btn.dataset.dir, 10);
+          paginateContainer(id);
+        };
+      });
+      container.appendChild(pager);
+    }
+
+    function paginateAll() {
+      ['top-movers', 'open-table', 'closed-table'].forEach(paginateContainer);
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/render');
+        const data = await res.json();
+        document.getElementById('stats').innerHTML = data.stats_html;
+        document.getElementById('top-movers').innerHTML = data.top_movers_html;
+        if (data.equity_svg) {
+          const eqEl = document.getElementById('equity-curve');
+          if (eqEl) eqEl.innerHTML = data.equity_svg;
+        }
+        if (data.open_count !== undefined) {
+          const ocEl = document.getElementById('open-count');
+          if (ocEl) ocEl.textContent = data.open_count + ' active';
+        }
+        if (data.closed_count !== undefined) {
+          const ccEl = document.getElementById('closed-count');
+          if (ccEl) ccEl.textContent = data.closed_count + ' total';
+        }
+        document.getElementById('open-table').innerHTML = data.open_table_html;
+        document.getElementById('closed-table').innerHTML = data.closed_table_html;
+        document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+        paginateAll();
+      } catch (e) { /* keep last good render */ }
+    }
+    paginateAll();
+  </script>
+</body>
+</html>
